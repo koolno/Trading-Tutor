@@ -24,6 +24,8 @@ from core.engines.technical import TechnicalAnalysis
 from core.engines.news_engine import NewsEngine, MockNewsProvider, NewsProvider
 from core.engines.investment_memory import InvestmentMemory, Observation
 from core.engines.live_adapter import LiveTradingAdapter
+from core.engines.narration import narrate_emergency_stop_uk, narrate_entry_uk, narrate_wait_uk
+from core.engines.understanding import build_understanding_summary
 from core.knowledge.constitution import build_seed_constitution
 from core.models.types import Mode
 
@@ -128,9 +130,11 @@ class Session:
                     continue
                 current = window[-1]
                 # закрити позиції за діапазоном поточної свічки
+                close_narrations = []
                 for pos, pnl, result in self.broker.update_candle(
                         asset, current.high, current.low):
                     self._journal_close(pos, pnl, result, current.close)
+                    close_narrations.append(narrate_entry_uk(self.journal.entries[-1]))
                 report = self.dq.check(window, "1h", check_staleness=False)
                 factors, snapshot = self.ta.analyze(
                     asset, window, report.reliable, report.issues)
@@ -138,9 +142,20 @@ class Session:
                 if asset not in self._news_cache or self._cursor % 24 == 0:
                     self._news_cache[asset] = self.news.analyze(asset)
                 news_ctx = self._news_cache[asset]
+                before = len(self.journal.entries)
                 msg = self.engine.step(snapshot, factors,
                                        update_positions=False, news=news_ctx)
-                self.last_action = f"{asset}: {msg.splitlines()[0]}"
+                if len(self.journal.entries) > before:
+                    step_narration = narrate_entry_uk(self.journal.entries[-1])
+                elif msg.startswith("⏳"):
+                    step_narration = narrate_wait_uk(asset, msg)
+                elif msg.startswith("⛔"):
+                    step_narration = narrate_emergency_stop_uk(
+                        asset, msg.split(":", 1)[-1])
+                else:
+                    step_narration = msg.splitlines()[0]
+                # подія закриття важливіша за цей тік — показуємо саме її, якщо була
+                self.last_action = close_narrations[-1] if close_narrations else step_narration
             self.equity_curve.append(round(self.broker.equity, 2))
             if len(self.equity_curve) > self._max_curve:
                 self.equity_curve = self.equity_curve[-self._max_curve:]
@@ -198,6 +213,10 @@ class Session:
         self._persist_cycle(report)
         return report
 
+    def understanding_summary(self) -> list[str]:
+        """Прості підсумки розуміння (§PLAN C3) — не бали, не рівні."""
+        return build_understanding_summary(self.journal.entries).insights_uk
+
     def _persist_cycle(self, report: str):
         """Зберігає підсумок циклу і угоди в БД (§37)."""
         try:
@@ -238,6 +257,8 @@ class Session:
             "running": self.running,
             "paused": self.paused,
             "mode": self.config.mode.value,
+            "risk_level": self.config.risk_level,
+            "is_demo": self.config.is_demo,
             "balance": round(self.broker.equity, 2),
             "starting": self.starting_equity,
             "pnl": round(self.broker.equity - self.starting_equity, 2),

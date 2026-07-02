@@ -1,4 +1,6 @@
 """Тест кейс-білдера (PLAN A3): кейс формується і містить чесну статистику."""
+import json
+
 from core.data.providers import SyntheticProvider
 from core.engines.case_builder import Case, CaseBuilder
 from core.engines.risk_engine import RiskEngine
@@ -62,3 +64,15 @@ def test_case_builder_rejects_too_short_history():
         assert False, "мало бути виключення для замалої історії"
     except ValueError:
         pass
+
+
+def test_case_save_json_writes_utf8_cyrillic_without_crashing(tmp_path):
+    # регрес: save_json раніше писав без encoding="utf-8" і падав на Windows
+    # (cp1252) через українські літери у supporting-факторах
+    case = _build()
+    path = case.save_json(tmp_path / "case.json")
+    text = path.read_text(encoding="utf-8")
+    assert case.asset in text
+    loaded = json.loads(text)
+    assert loaded["asset"] == case.asset
+    assert len(loaded["trades"]) == len(case.trades)

@@ -4,6 +4,5 @@ __pycache__/
 *.egg-info/
 .env
 data/*.csv
-data/cases/
 *.db
 *.sqlite3

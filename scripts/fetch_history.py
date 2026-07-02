@@ -25,7 +25,7 @@ DEFAULT_OUTDIR = Path(__file__).resolve().parent.parent / "data"
 def candles_to_csv(candles: list[Candle], path: Path) -> Path:
     """Записує свічки у CSV у форматі, сумісному з CsvProvider."""
     path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", newline="") as f:
+    with path.open("w", newline="", encoding="utf-8") as f:
         writer = csv.writer(f)
         writer.writerow(["ts", "open", "high", "low", "close", "volume"])
         for c in candles:

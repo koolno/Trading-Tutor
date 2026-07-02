@@ -27,6 +27,7 @@
   .st-run{color:var(--green);border-color:rgba(70,183,107,.4);background:rgba(70,183,107,.08)}
   .st-pause{color:var(--gold);border-color:rgba(212,168,67,.4);background:rgba(212,168,67,.08)}
   .st-stop{color:var(--muted)}
+  .badge-demo{color:var(--gold);border-color:rgba(212,168,67,.4);background:rgba(212,168,67,.08)}
   .grid{display:grid;gap:14px}
   .cols-4{grid-template-columns:repeat(4,1fr)}
   .cols-2{grid-template-columns:1.6fr 1fr}
@@ -70,6 +71,49 @@
   .note{font-size:12px;color:var(--muted);line-height:1.5;margin-top:4px}
   .foot{margin-top:28px;font-size:11px;color:var(--muted);line-height:1.6;
     border-top:1px solid var(--line);padding-top:16px}
+  .disclaimer-box{display:flex;gap:12px;align-items:flex-start;background:rgba(212,168,67,.08);
+    border:1px solid rgba(212,168,67,.35);border-radius:10px;padding:14px 16px;
+    margin-bottom:18px;font-size:13px;line-height:1.6;color:var(--ink)}
+  .disclaimer-box .icon{font-size:18px;flex:none;line-height:1.4}
+  .disclaimer-box b{color:var(--gold)}
+  .plain-card{max-width:520px;margin:0 auto}
+  .plain-assets{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
+  .plain-assets button{flex:1;min-width:110px}
+  .plain-headline{font-size:22px;font-weight:700;line-height:1.4;margin:0 0 16px}
+  .plain-details{list-style:none;margin:0;padding:0;display:grid;gap:10px}
+  .plain-details li{font-size:15px;line-height:1.5;color:var(--ink);
+    background:var(--panel2);border-radius:10px;padding:12px 14px}
+  .plain-price{font-size:13px;color:var(--muted);margin-bottom:10px}
+  .link-btn{background:none;border:none;color:var(--teal);cursor:pointer;
+    font-size:13px;padding:0;text-decoration:underline}
+  .prob-bar{display:flex;height:14px;border-radius:7px;overflow:hidden;margin:10px 0;
+    border:1px solid var(--line)}
+  .prob-bar .up{background:var(--green)} .prob-bar .down{background:var(--red)}
+  .prob-bar .flat{background:var(--muted)}
+  .prob-legend{display:flex;justify-content:space-between;font-size:12px;color:var(--muted)}
+  .factors-cols{display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:16px}
+  @media(max-width:520px){.factors-cols{grid-template-columns:1fr}}
+  .factors-cols h4{font-size:12px;text-transform:uppercase;letter-spacing:.5px;margin:0 0 8px}
+  .factors-cols .for h4{color:var(--green)} .factors-cols .against h4{color:var(--red)}
+  .factors-cols ul{list-style:none;margin:0;padding:0;display:grid;gap:6px}
+  .factors-cols li{font-size:13px;line-height:1.4;background:var(--panel2);
+    border-radius:8px;padding:8px 10px}
+  .details-panel{margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+  .btn-row{display:flex;gap:10px;justify-content:center;margin-top:18px;flex-wrap:wrap}
+  .step-dots{display:flex;justify-content:center;gap:8px;margin-bottom:14px}
+  .step-dots span{width:8px;height:8px;border-radius:50%;background:var(--line)}
+  .step-dots span.on{background:var(--teal);width:20px;border-radius:4px}
+  .btn-flow{width:100%;padding:16px;font-size:16px;border-radius:12px;margin-top:18px}
+  .case-card{text-align:left;width:100%;background:var(--panel);border:1px solid var(--line);
+    border-radius:12px;padding:16px;cursor:pointer;transition:.15s;font-family:inherit}
+  .case-card:hover{border-color:var(--muted)}
+  .case-card .case-top{display:flex;justify-content:space-between;align-items:baseline}
+  .case-card .case-asset{font-size:16px;font-weight:700;color:var(--ink)}
+  .case-card .case-period{font-size:12px;color:var(--muted);margin-top:2px}
+  .shield-row{display:flex;gap:10px;align-items:flex-start;background:rgba(70,183,107,.08);
+    border:1px solid rgba(70,183,107,.3);border-radius:10px;padding:12px 14px;margin-bottom:10px}
+  .shield-row .icon{font-size:18px;flex:none}
+  .case-table td,.case-table th{white-space:nowrap}
 </style>
 </head>
 <body>
@@ -103,14 +147,288 @@ function Sparkline({data}){
   </svg>);
 }
 
-function Setup({onStart,onBacktest,backtestResult}){
+const SIMPLE_ASSETS = ["BTC/USDT","ETH/USDT","SOL/USDT"];
+const SIMPLE_STEPS = 3;
+
+function StepDots({step}){
+  return (<div className="step-dots">
+    {Array.from({length:SIMPLE_STEPS}).map((_,i)=>
+      <span key={i} className={i+1===step?"on":""}></span>)}
+  </div>);
+}
+
+function SimpleScreen1({onBack,onNext}){
+  const [asset,setAsset]=useState(SIMPLE_ASSETS[0]);
+  const [s,setS]=useState(null);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    let cancelled=false;
+    setLoading(true);
+    call("/api/situation?asset="+encodeURIComponent(asset)).then(r=>{
+      if(!cancelled && r && !r.error){ setS(r); setLoading(false); }
+    });
+    return ()=>{cancelled=true};
+  },[asset]);
+
+  return (<div className="plain-card">
+    <StepDots step={1}/>
+    <h3 style={{textAlign:"center"}}>Що система бачить</h3>
+    <div className="plain-assets">
+      {SIMPLE_ASSETS.map(a=>
+        <button key={a} className={a===asset?"on":""} onClick={()=>setAsset(a)}>{a.replace("/USDT","")}</button>)}
+    </div>
+    <div className="card">
+      {loading||!s ? <div className="empty">Дивимось на ринок…</div> : (<>
+        <div className="plain-price mono">Поточна ціна: ${f2(s.price)}</div>
+        <p className="plain-headline">{s.headline}</p>
+        <ul className="plain-details">
+          {s.details.map((line,i)=><li key={i}>{line}</li>)}
+        </ul>
+      </>)}
+    </div>
+    <p className="note" style={{textAlign:"center",marginTop:16}}>
+      Це просто опис ситуації — не порада купувати чи продавати.
+    </p>
+    <button className="btn-go btn-flow" onClick={()=>onNext(asset)}>Далі →</button>
+    <div style={{textAlign:"center",marginTop:10}}>
+      <button className="link-btn" onClick={onBack}>← Назад до налаштувань</button>
+    </div>
+  </div>);
+}
+
+function SimpleScreen2({initialAsset,onBack,onNext}){
+  const [asset,setAsset]=useState(initialAsset||SIMPLE_ASSETS[0]);
+  const [a,setA]=useState(null);
+  const [loading,setLoading]=useState(true);
+  const [details,setDetails]=useState(false);
+
+  useEffect(()=>{
+    let cancelled=false;
+    setLoading(true);
+    call("/api/advice?asset="+encodeURIComponent(asset)).then(r=>{
+      if(!cancelled && r && !r.error){ setA(r); setLoading(false); }
+    });
+    return ()=>{cancelled=true};
+  },[asset]);
+
+  const p = a && a.probability;
+
+  return (<div className="plain-card">
+    <StepDots step={2}/>
+    <h3 style={{textAlign:"center"}}>Що радить і чому</h3>
+    <div className="plain-assets">
+      {SIMPLE_ASSETS.map(x=>
+        <button key={x} className={x===asset?"on":""} onClick={()=>setAsset(x)}>{x.replace("/USDT","")}</button>)}
+    </div>
+    <div className="card">
+      {loading||!a ? <div className="empty">Дивимось в історію…</div> : (<>
+        <div className="plain-price mono">Поточна ціна: ${f2(a.price)}</div>
+
+        {p ? (<>
+          <p className="plain-headline" style={{fontSize:18}}>
+            У схожих ситуаціях в історії ціна {p.up_pct>=p.down_pct?"частіше росла":"частіше падала"}.
+          </p>
+          <div className="prob-bar">
+            <div className="up" style={{width:p.up_pct+"%"}}></div>
+            <div className="flat" style={{width:p.flat_pct+"%"}}></div>
+            <div className="down" style={{width:p.down_pct+"%"}}></div>
+          </div>
+          <div className="prob-legend">
+            <span style={{color:"var(--green)"}}>Росла {p.up_pct}%</span>
+            <span>Без змін {p.flat_pct}%</span>
+            <span style={{color:"var(--red)"}}>Падала {p.down_pct}%</span>
+          </div>
+          {!p.sample_is_sufficient &&
+            <p className="note" style={{color:"var(--gold)"}}>⚠ Схожих випадків в історії було мало ({p.sample_size}) — довіряти цій статистиці варто обережно.</p>}
+        </>) : <p className="note">Замало схожих випадків в історії, щоб чесно оцінити ймовірність зараз.</p>}
+
+        <div className="factors-cols">
+          <div className="for">
+            <h4>За зростання</h4>
+            {a.factors_for.length ? <ul>{a.factors_for.map((f,i)=><li key={i}>{f}</li>)}</ul>
+              : <div className="empty">Немає явних причин</div>}
+          </div>
+          <div className="against">
+            <h4>За падіння</h4>
+            {a.factors_against.length ? <ul>{a.factors_against.map((f,i)=><li key={i}>{f}</li>)}</ul>
+              : <div className="empty">Немає явних причин</div>}
+          </div>
+        </div>
+
+        {details && p && <div className="details-panel">
+          <p className="note"><b>Чому саме так:</b> {p.why}</p>
+          <p className="note"><b>Що може піти не так:</b> {p.what_could_go_wrong}</p>
+          <p className="note">Розрахунок на основі {p.sample_size} схожих випадків в історії, горизонт — {p.horizon_candles} свічок наперед.</p>
+        </div>}
+
+        <p className="note" style={{textAlign:"center",marginTop:16}}>
+          Це статистика по минулому, а НЕ порада купувати чи продавати. Рішення — за тобою.
+        </p>
+      </>)}
+    </div>
+
+    <div className="btn-row">
+      <button className="btn-ghost" onClick={()=>setDetails(v=>!v)}>{details?"Сховати деталі":"Показати деталі"}</button>
+    </div>
+    <button className="btn-go btn-flow" onClick={()=>onNext(asset)}>Розумію, далі →</button>
+    <div style={{textAlign:"center",marginTop:10}}>
+      <button className="link-btn" onClick={onBack}>← Назад</button>
+    </div>
+  </div>);
+}
+
+function SimpleScreen3({initialAsset,onBack,onTry,onSkip}){
+  const asset = initialAsset || SIMPLE_ASSETS[0];
+  return (<div className="plain-card">
+    <StepDots step={3}/>
+    <h3 style={{textAlign:"center"}}>Рішення за тобою</h3>
+    <div className="card">
+      <p className="plain-headline" style={{textAlign:"center"}}>
+        Що робити далі — вирішуєш тільки ти.
+      </p>
+    </div>
+    <button className="btn-go btn-flow" onClick={()=>onTry(asset)}>Спробувати в тренажері</button>
+    <button className="btn-ghost btn-flow" style={{marginTop:10}} onClick={onSkip}>Пропустити</button>
+    <div style={{textAlign:"center",marginTop:14}}>
+      <button className="link-btn" onClick={onBack}>← Назад</button>
+    </div>
+  </div>);
+}
+
+const fDate = (iso) => iso ? iso.slice(0,10) : "—";
+
+function CasesScreen({onBack}){
+  const [cases,setCases]=useState(null);
+  const [selected,setSelected]=useState(null);
+  const [detail,setDetail]=useState(null);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    call("/api/cases").then(r=>{
+      if(r && !r.error){ setCases(r.cases||[]); setLoading(false); }
+    });
+  },[]);
+
+  useEffect(()=>{
+    if(!selected) return;
+    setDetail(null);
+    call("/api/cases/"+encodeURIComponent(selected)).then(r=>{
+      if(r && !r.error) setDetail(r);
+    });
+  },[selected]);
+
+  if(selected){
+    return (<div className="plain-card" style={{maxWidth:720}}>
+      <h3 style={{textAlign:"center"}}>Кейс: {selected.replace("_","/")}</h3>
+      {!detail ? <div className="empty">Завантажуємо кейс…</div> : (<>
+        <div className="card" style={{marginBottom:14}}>
+          <div className="plain-price mono">{fDate(detail.period_start)} → {fDate(detail.period_end)}</div>
+          <p className="plain-headline" style={{fontSize:18}}>
+            Результат: <span className={detail.total_return_pct>=0?"pos":"neg"}>
+              {detail.total_return_pct>=0?"+":""}{detail.total_return_pct}%
+            </span> ({f2(detail.starting_equity)} → {f2(detail.ending_equity)} USD)
+          </p>
+          <p className="note">
+            Угод: {detail.trades.length} · Система відмовилась від угоди {detail.rejected_by_risk} раз(и),
+            коли ризик був завеликий.
+          </p>
+          {detail.total_return_pct<=0 && <p className="note">
+            Результат нульовий або від'ємний — показуємо чесно. Цінність кейсу в контролі
+            ризику, а не в обіцянці прибутку.
+          </p>}
+        </div>
+
+        {detail.stop_loss_saves>0 && <div className="card" style={{marginBottom:14}}>
+          <h3>Ось де тебе захистили від втрати</h3>
+          {detail.trades.filter(t=>t.protected_from_loss).map((t,i)=>
+            <div className="shield-row" key={i}>
+              <span className="icon">🛡️</span>
+              <span>
+                {fDate(t.opened_at)}: стоп-лос зупинив збиток на {t.asset} —
+                <span className="neg mono"> {f2(t.pnl_usd)} USD</span> замість більшої втрати.
+              </span>
+            </div>
+          )}
+        </div>}
+
+        <div className="card">
+          <h3>Усі угоди</h3>
+          <table className="case-table">
+            <thead><tr><th>Дата</th><th>Напрям</th><th>Вхід</th><th>Вихід</th><th>P/L</th><th>Захист</th></tr></thead>
+            <tbody>{detail.trades.map((t,i)=><tr key={i}>
+              <td>{fDate(t.opened_at)}</td>
+              <td>{t.direction==="long"?"Лонг":"Шорт"}</td>
+              <td className="mono">{f2(t.entry)}</td>
+              <td className="mono">{f2(t.exit)}</td>
+              <td className={"mono "+(t.pnl_usd>0?"pos":t.pnl_usd<0?"neg":"")}>
+                {t.pnl_usd>0?"+":""}{f2(t.pnl_usd)}</td>
+              <td>{t.protected_from_loss?"🛡️ так":"—"}</td>
+            </tr>)}</tbody>
+          </table>
+        </div>
+      </>)}
+      <div style={{textAlign:"center",marginTop:14}}>
+        <button className="link-btn" onClick={()=>setSelected(null)}>← До списку кейсів</button>
+      </div>
+    </div>);
+  }
+
+  return (<div className="plain-card" style={{maxWidth:640}}>
+    <DisclaimerBanner/>
+    <h3 style={{textAlign:"center"}}>Реальні кейси</h3>
+    <p className="note" style={{textAlign:"center",marginBottom:16}}>
+      Це реальна історія цін, без підбору вигідного періоду. Прибутки й збитки — обидва чесно.
+    </p>
+    {loading ? <div className="empty">Завантажуємо кейси…</div> :
+      (!cases || !cases.length ? <div className="empty">Кейсів поки немає.</div> :
+        <div style={{display:"grid",gap:10}}>
+          {cases.map(c=>
+            <button className="case-card" key={c.id} onClick={()=>setSelected(c.id)}>
+              <div className="case-top">
+                <span className="case-asset">{c.asset}</span>
+                <span className={"mono "+(c.total_return_pct>=0?"pos":"neg")}>
+                  {c.total_return_pct>=0?"+":""}{c.total_return_pct}%</span>
+              </div>
+              <div className="case-period">{fDate(c.period_start)} → {fDate(c.period_end)} · {c.trades} угод</div>
+              {c.stop_loss_saves>0 && <div className="note" style={{marginTop:6,color:"var(--green)"}}>
+                🛡️ Захистило від збитку {c.stop_loss_saves} раз(и)</div>}
+            </button>
+          )}
+        </div>)}
+    <div style={{textAlign:"center",marginTop:16}}>
+      <button className="link-btn" onClick={onBack}>← Назад</button>
+    </div>
+  </div>);
+}
+
+function DisclaimerBanner(){
+  return (<div className="disclaimer-box">
+    <span className="icon">⚠️</span>
+    <span>
+      <b>Чесно і одразу:</b> цей застосунок не обіцяє прибутку і не гарантує результату.
+      Минулі результати (включно з реальними кейсами) не гарантують майбутніх. Це навчальний
+      інструмент, не фінансова порада — рішення про реальні гроші завжди твої.
+    </span>
+  </div>);
+}
+
+function Setup({onStart,onBacktest,backtestResult,onSimple,onCases}){
   const [amount,setAmount]=useState(500);
   const [risk,setRisk]=useState("conservative");
   const [mode,setMode]=useState("paper");
   const [confirmed,setConfirmed]=useState(false);
   const passed = backtestResult && backtestResult.passed;
-  return (<div className="card">
+  return (<>
+    <DisclaimerBanner/>
+    <div className="card">
     <h3>Налаштування стратегії</h3>
+    <div style={{textAlign:"center",marginBottom:8}}>
+      <button className="link-btn" onClick={onSimple}>Спочатку простий огляд (3 кроки) →</button>
+    </div>
+    <div style={{textAlign:"center",marginBottom:16}}>
+      <button className="link-btn" onClick={onCases}>Подивитись реальні кейси →</button>
+    </div>
     <div className="setup">
       <div className="field"><label>Сума для роботи (USD)</label>
         <div className="seg">{[100,300,500,1000].map(a=>
@@ -136,6 +454,7 @@ function Setup({onStart,onBacktest,backtestResult}){
         <p className="note">1. Пройти backtest (перевірка на історії).</p>
         <button className="btn-ghost" onClick={onBacktest} style={{margin:"6px 0"}}>Запустити backtest</button>
         {backtestResult && <pre className="mono" style={{whiteSpace:"pre-wrap",fontSize:11,color:passed?"var(--green)":"var(--red)",margin:"4px 0"}}>{backtestResult.summary}</pre>}
+        {backtestResult && <p className="note">Це результат на минулих даних — він не гарантує майбутнього результату.</p>}
         <p className="note">2. Додати API-ключі Binance у файл <b>.env</b> на сервері (лише торгівля, вивід вимкнено).</p>
         <label style={{display:"flex",gap:8,alignItems:"center",marginTop:8,fontSize:13,color:"var(--ink)"}}>
           <input type="checkbox" checked={confirmed} onChange={e=>setConfirmed(e.target.checked)} style={{width:"auto"}}/>
@@ -152,10 +471,11 @@ function Setup({onStart,onBacktest,backtestResult}){
           {passed&&confirmed?"Почати з реальними грошима":"Виконайте умови вище"}</button>
       }
     </div>
-  </div>);
+    </div>
+  </>);
 }
 
-function Dashboard({d,journal,onCmd,report,onNew}){
+function Dashboard({d,journal,onCmd,report,understanding,onNew}){
   const s=d.stats||{};
   const pnlCls=d.pnl>=0?"pos":"neg";
   const isReport=!!report;
@@ -222,6 +542,13 @@ function Dashboard({d,journal,onCmd,report,onNew}){
         :<div className="empty">Журнал порожній</div>}
     </div>
 
+    {understanding&&understanding.length>0&&<div className="card" style={{marginTop:14}}>
+      <h3>Що ти тепер розумієш</h3>
+      <ul className="plain-details" style={{margin:0}}>
+        {understanding.map((line,i)=><li key={i}>{line}</li>)}
+      </ul>
+    </div>}
+
     {report&&<div className="card" style={{marginTop:14}}>
       <h3>Звіт після зупинки</h3>
       <pre className="mono" style={{whiteSpace:"pre-wrap",fontSize:12,color:"var(--ink)",margin:0,lineHeight:1.5}}>{report}</pre>
@@ -232,8 +559,10 @@ function Dashboard({d,journal,onCmd,report,onNew}){
 function App(){
   const [d,setD]=useState(null);
   const [journal,setJournal]=useState([]);
-  const [view,setView]=useState("setup");   // setup | live | report
+  const [view,setView]=useState("setup");   // setup | simple1 | simple2 | simple3 | cases | live | report
+  const [simpleAsset,setSimpleAsset]=useState(SIMPLE_ASSETS[0]);
   const [report,setReport]=useState("");
+  const [understanding,setUnderstanding]=useState([]);
   const timer=useRef(null);
 
   const refresh=async()=>{
@@ -250,7 +579,7 @@ function App(){
   useEffect(()=>{ refresh(); timer.current=setInterval(refresh,1500); return ()=>clearInterval(timer.current); },[view]);
 
   const start=async(cfg)=>{
-    setReport("");
+    setReport(""); setUnderstanding([]);
     const r=await call("/api/start",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(cfg)});
     if(r&&r.detail){ alert("Live поки недоступний:\n"+(r.detail.checks||[]).join("\n")); return; }
     setView("live"); refresh();
@@ -263,10 +592,14 @@ function App(){
   };
   const cmd=async(c)=>{
     const r=await call("/api/"+c,{method:"POST"});
-    if(c==="stop"){ if(r.report) setReport(r.report); setView("report"); }
+    if(c==="stop"){
+      if(r.report) setReport(r.report);
+      if(r.understanding) setUnderstanding(r.understanding);
+      setView("report");
+    }
     refresh();
   };
-  const newCycle=()=>{ setReport(""); setD(null); setView("setup"); };
+  const newCycle=()=>{ setReport(""); setUnderstanding([]); setD(null); setView("setup"); };
 
   const status = d&&d.running?(d.paused?["st-pause","Пауза"]:["st-run","Працює"])
                 : (view==="report"?["st-stop","Завершено"]:["st-stop","Зупинено"]);
@@ -274,11 +607,23 @@ function App(){
   return (<div className="wrap">
     <header className="top">
       <div className="brand">Помічник трейдера<small>Поступовий ріст капіталу · контроль ризику</small></div>
-      <div className={"status-pill "+status[0]}>{status[1]}</div>
+      <div style={{display:"flex",gap:8,alignItems:"center"}}>
+        {d&&d.is_demo && <div className="status-pill badge-demo">🎓 Тренажер</div>}
+        <div className={"status-pill "+status[0]}>{status[1]}</div>
+      </div>
     </header>
-    {view==="setup" && <Setup onStart={start} onBacktest={runBacktest} backtestResult={backtestResult}/>}
+    {view==="setup" && <Setup onStart={start} onBacktest={runBacktest} backtestResult={backtestResult}
+      onSimple={()=>setView("simple1")} onCases={()=>setView("cases")}/>}
+    {view==="simple1" && <SimpleScreen1 onBack={()=>setView("setup")}
+      onNext={(asset)=>{setSimpleAsset(asset); setView("simple2");}}/>}
+    {view==="simple2" && <SimpleScreen2 initialAsset={simpleAsset} onBack={()=>setView("setup")}
+      onNext={(asset)=>{setSimpleAsset(asset); setView("simple3");}}/>}
+    {view==="simple3" && <SimpleScreen3 initialAsset={simpleAsset} onBack={()=>setView("simple2")}
+      onTry={(asset)=>start({amount_usd:500, risk_level:"demo", mode:"paper", assets:[asset]})}
+      onSkip={()=>setView("setup")}/>}
+    {view==="cases" && <CasesScreen onBack={()=>setView("setup")}/>}
     {view==="live" && (d ? <Dashboard d={d} journal={journal} onCmd={cmd} report=""/> : <div className="empty">Завантаження…</div>)}
-    {view==="report" && (d ? <Dashboard d={d} journal={journal} onCmd={cmd} report={report} onNew={newCycle}/> : <div className="empty">Звіт недоступний</div>)}
+    {view==="report" && (d ? <Dashboard d={d} journal={journal} onCmd={cmd} report={report} understanding={understanding} onNew={newCycle}/> : <div className="empty">Звіт недоступний</div>)}
     <div className="foot">
       Це навчально-дослідницький інструмент. Він <b>не обіцяє прибутку</b> і працює в режимі Paper Trading без реальних грошей.
       Risk Engine може заблокувати будь-яку угоду заради збереження капіталу. Минулі результати не гарантують майбутніх.

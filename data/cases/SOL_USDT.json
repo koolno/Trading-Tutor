@@ -1,0 +1,352 @@
+{
+  "asset": "SOL/USDT",
+  "period_start": "2026-05-24T11:00:00+00:00",
+  "period_end": "2026-07-02T14:00:00+00:00",
+  "starting_equity": 500.0,
+  "ending_equity": 482.49,
+  "total_return_pct": -3.5,
+  "rejected_by_risk": 444,
+  "stop_loss_saves": 14,
+  "trades": [
+    {
+      "asset": "SOL/USDT",
+      "direction": "long",
+      "opened_at": "2026-05-24T11:00:00+00:00",
+      "closed_at": "2026-05-24T13:00:00+00:00",
+      "entry": 86.70333,
+      "stop_loss": 85.867061,
+      "take_profit": 88.245878,
+      "exit": 85.867061,
+      "pnl_usd": -3.0426,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Висхідний тренд",
+        "MACD бичачий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "long",
+      "opened_at": "2026-05-24T12:00:00+00:00",
+      "closed_at": "2026-05-24T14:00:00+00:00",
+      "entry": 86.393175,
+      "stop_loss": 85.619479,
+      "take_profit": 87.811042,
+      "exit": 85.619479,
+      "pnl_usd": -3.0855,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Висхідний тренд",
+        "MACD бичачий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-24T16:00:00+00:00",
+      "closed_at": "2026-05-24T21:00:00+00:00",
+      "entry": 85.59718,
+      "stop_loss": 86.5739042,
+      "take_profit": 83.7721916,
+      "exit": 83.7721916,
+      "pnl_usd": 4.4879,
+      "result": "win",
+      "protected_from_loss": false,
+      "supporting": [
+        "MACD ведмежий",
+        "Ціна біля опору"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-24T17:00:00+00:00",
+      "closed_at": "2026-05-24T21:00:00+00:00",
+      "entry": 85.607175,
+      "stop_loss": 86.56345725,
+      "take_profit": 83.8230855,
+      "exit": 83.8230855,
+      "pnl_usd": 4.4757,
+      "result": "win",
+      "protected_from_loss": false,
+      "supporting": [
+        "MACD ведмежий",
+        "Ціна біля опору"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "long",
+      "opened_at": "2026-05-24T20:00:00+00:00",
+      "closed_at": "2026-05-24T21:00:00+00:00",
+      "entry": 84.80238,
+      "stop_loss": 83.8331494,
+      "take_profit": 86.6137012,
+      "exit": 83.8331494,
+      "pnl_usd": -2.9098,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Ціна біля підтримки",
+        "RSI низький (28) — перепроданість"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-24T22:00:00+00:00",
+      "closed_at": "2026-05-25T05:00:00+00:00",
+      "entry": 84.947505,
+      "stop_loss": 86.0685231,
+      "take_profit": 82.8329538,
+      "exit": 86.0685231,
+      "pnl_usd": -2.8889,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-25T01:00:00+00:00",
+      "closed_at": "2026-05-25T05:00:00+00:00",
+      "entry": 84.827565,
+      "stop_loss": 85.95591165,
+      "take_profit": 82.6981767,
+      "exit": 85.95591165,
+      "pnl_usd": -2.8822,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-24T18:00:00+00:00",
+      "closed_at": "2026-05-25T14:00:00+00:00",
+      "entry": 85.3573,
+      "stop_loss": 86.319758,
+      "take_profit": 83.560484,
+      "exit": 86.319758,
+      "pnl_usd": -2.9257,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "MACD ведмежий",
+        "Ціна біля опору"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-24T23:00:00+00:00",
+      "closed_at": "2026-05-25T14:00:00+00:00",
+      "entry": 85.227365,
+      "stop_loss": 86.33800675,
+      "take_profit": 83.1339865,
+      "exit": 86.33800675,
+      "pnl_usd": -2.8929,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-25T00:00:00+00:00",
+      "closed_at": "2026-05-26T17:00:00+00:00",
+      "entry": 85.45725,
+      "stop_loss": 86.559345,
+      "take_profit": 83.38131,
+      "exit": 83.38131,
+      "pnl_usd": 4.5859,
+      "result": "win",
+      "protected_from_loss": false,
+      "supporting": [
+        "MACD ведмежий",
+        "Ціна біля опору"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-26T17:00:00+00:00",
+      "closed_at": "2026-05-27T15:00:00+00:00",
+      "entry": 83.548205,
+      "stop_loss": 84.7610959,
+      "take_profit": 81.2478082,
+      "exit": 84.7610959,
+      "pnl_usd": -2.8072,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-26T18:00:00+00:00",
+      "closed_at": "2026-05-27T15:00:00+00:00",
+      "entry": 83.588185,
+      "stop_loss": 84.81043745,
+      "take_profit": 81.2691251,
+      "exit": 84.81043745,
+      "pnl_usd": -2.8037,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "long",
+      "opened_at": "2026-05-27T15:00:00+00:00",
+      "closed_at": "2026-05-27T17:00:00+00:00",
+      "entry": 84.48222,
+      "stop_loss": 83.5255148,
+      "take_profit": 86.2689704,
+      "exit": 83.5255148,
+      "pnl_usd": -2.8641,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "MACD бичачий",
+        "Ціна біля підтримки"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "long",
+      "opened_at": "2026-05-27T16:00:00+00:00",
+      "closed_at": "2026-05-27T17:00:00+00:00",
+      "entry": 84.22209,
+      "stop_loss": 83.2152972,
+      "take_profit": 86.1094056,
+      "exit": 83.2152972,
+      "pnl_usd": -2.8383,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "MACD бичачий",
+        "Ціна біля підтримки"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-26T19:00:00+00:00",
+      "closed_at": "2026-05-28T03:00:00+00:00",
+      "entry": 83.7581,
+      "stop_loss": 84.977809,
+      "take_profit": 81.444382,
+      "exit": 81.444382,
+      "pnl_usd": 4.5614,
+      "result": "win",
+      "protected_from_loss": false,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-26T20:00:00+00:00",
+      "closed_at": "2026-05-28T03:00:00+00:00",
+      "entry": 83.89803,
+      "stop_loss": 85.0971129,
+      "take_profit": 81.6257742,
+      "exit": 81.6257742,
+      "pnl_usd": 4.553,
+      "result": "win",
+      "protected_from_loss": false,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-26T21:00:00+00:00",
+      "closed_at": "2026-05-28T03:00:00+00:00",
+      "entry": 83.65815,
+      "stop_loss": 84.8437605,
+      "take_profit": 81.412479,
+      "exit": 81.412479,
+      "pnl_usd": 4.5482,
+      "result": "win",
+      "protected_from_loss": false,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-28T11:00:00+00:00",
+      "closed_at": "2026-05-28T16:00:00+00:00",
+      "entry": 80.83956,
+      "stop_loss": 81.8651184,
+      "take_profit": 78.9097632,
+      "exit": 81.8651184,
+      "pnl_usd": -2.8659,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-28T12:00:00+00:00",
+      "closed_at": "2026-05-28T16:00:00+00:00",
+      "entry": 81.089435,
+      "stop_loss": 82.0986922,
+      "take_profit": 79.1926156,
+      "exit": 82.0986922,
+      "pnl_usd": -2.8728,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    },
+    {
+      "asset": "SOL/USDT",
+      "direction": "short",
+      "opened_at": "2026-05-28T13:00:00+00:00",
+      "closed_at": "2026-05-28T16:00:00+00:00",
+      "entry": 80.749605,
+      "stop_loss": 81.7934118,
+      "take_profit": 78.7831764,
+      "exit": 81.7934118,
+      "pnl_usd": -2.8557,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Низхідний тренд",
+        "MACD ведмежий"
+      ]
+    }
+  ]
+}

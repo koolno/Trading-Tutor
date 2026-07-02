@@ -70,5 +70,6 @@ class Journal:
 
     def _flush(self) -> None:
         self.path.write_text(
-            json.dumps([asdict(e) for e in self.entries], ensure_ascii=False, indent=2)
+            json.dumps([asdict(e) for e in self.entries], ensure_ascii=False, indent=2),
+            encoding="utf-8",
         )

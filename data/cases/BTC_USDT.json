@@ -1,0 +1,64 @@
+{
+  "asset": "BTC/USDT",
+  "period_start": "2026-05-24T11:00:00+00:00",
+  "period_end": "2026-07-02T14:00:00+00:00",
+  "starting_equity": 500.0,
+  "ending_equity": 488.25,
+  "total_return_pct": -2.35,
+  "rejected_by_risk": 493,
+  "stop_loss_saves": 3,
+  "trades": [
+    {
+      "asset": "BTC/USDT",
+      "direction": "long",
+      "opened_at": "2026-05-24T11:00:00+00:00",
+      "closed_at": "2026-05-24T13:00:00+00:00",
+      "entry": 77358.72003,
+      "stop_loss": 76909.4904814,
+      "take_profit": 78141.1990372,
+      "exit": 76909.4904814,
+      "pnl_usd": -3.4376,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Висхідний тренд",
+        "MACD бичачий",
+        "Пробій вгору"
+      ]
+    },
+    {
+      "asset": "BTC/USDT",
+      "direction": "long",
+      "opened_at": "2026-05-24T12:00:00+00:00",
+      "closed_at": "2026-05-24T13:00:00+00:00",
+      "entry": 77157.289365,
+      "stop_loss": 76731.20838175,
+      "take_profit": 77893.7732365,
+      "exit": 76731.20838175,
+      "pnl_usd": -3.4877,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Висхідний тренд",
+        "MACD бичачий"
+      ]
+    },
+    {
+      "asset": "BTC/USDT",
+      "direction": "long",
+      "opened_at": "2026-05-24T13:00:00+00:00",
+      "closed_at": "2026-05-24T14:00:00+00:00",
+      "entry": 76840.631115,
+      "stop_loss": 76397.86625905,
+      "take_profit": 77610.9574819,
+      "exit": 76397.86625905,
+      "pnl_usd": -3.3913,
+      "result": "loss",
+      "protected_from_loss": true,
+      "supporting": [
+        "Висхідний тренд",
+        "MACD бичачий"
+      ]
+    }
+  ]
+}
