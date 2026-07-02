@@ -451,6 +451,41 @@ function ProgressScreen({onBack}){
   </div>);
 }
 
+function SupportScreen({onBack}){
+  return (<div className="plain-card">
+    <h3 style={{textAlign:"center"}}>Підтримати проєкт</h3>
+    <div className="card">
+      <p className="plain-headline" style={{fontSize:18}}>
+        Це безкоштовний освітній проєкт. Він не обіцяє прибутку — і не просить грошей за обіцянки.
+      </p>
+      <ul className="plain-details">
+        <li>
+          Якщо застосунок був тобі корисним — найкраща підтримка зараз: зірка на GitHub,
+          відгук або звіт про помилку. Це реально допомагає проєкту рости.
+        </li>
+        <li>
+          Платної підписки чи донату поки немає. Перш ніж їх вмикати, варто:
+          пройти юридичну перевірку фінансового законодавства (§4 плану) і
+          переконатись, що проєкт справді корисний першим користувачам (§7 плану).
+        </li>
+        <li>
+          Якщо колись з'явиться підписка — вона буде за користь (навчання, чесність,
+          контроль ризику), а не за обіцянку прибутку.
+        </li>
+      </ul>
+      <div style={{textAlign:"center",marginTop:16}}>
+        <a className="btn-go btn-flow" style={{display:"block",textDecoration:"none",textAlign:"center"}}
+          href="https://github.com/koolno/Trading-Tutor" target="_blank" rel="noopener noreferrer">
+          ⭐ Проєкт на GitHub
+        </a>
+      </div>
+    </div>
+    <div style={{textAlign:"center",marginTop:16}}>
+      <button className="link-btn" onClick={onBack}>← Назад</button>
+    </div>
+  </div>);
+}
+
 function DisclaimerBanner(){
   return (<div className="disclaimer-box">
     <span className="icon">⚠️</span>
@@ -462,7 +497,7 @@ function DisclaimerBanner(){
   </div>);
 }
 
-function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress}){
+function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress,onSupport}){
   const [amount,setAmount]=useState(500);
   const [risk,setRisk]=useState("conservative");
   const [mode,setMode]=useState("paper");
@@ -478,8 +513,11 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress}){
     <div style={{textAlign:"center",marginBottom:8}}>
       <button className="link-btn" onClick={onCases}>Подивитись реальні кейси →</button>
     </div>
-    <div style={{textAlign:"center",marginBottom:16}}>
+    <div style={{textAlign:"center",marginBottom:8}}>
       <button className="link-btn" onClick={onProgress}>Твій прогрес →</button>
+    </div>
+    <div style={{textAlign:"center",marginBottom:16}}>
+      <button className="link-btn" onClick={onSupport}>Підтримати проєкт →</button>
     </div>
     <div className="setup">
       <div className="field"><label>Сума для роботи (USD)</label>
@@ -621,7 +659,7 @@ function Dashboard({d,journal,onCmd,report,understanding,onNew}){
 function App(){
   const [d,setD]=useState(null);
   const [journal,setJournal]=useState([]);
-  const [view,setView]=useState("setup");   // setup | simple1 | simple2 | simple3 | cases | progress | live | report
+  const [view,setView]=useState("setup");   // setup | simple1 | simple2 | simple3 | cases | progress | support | live | report
   const [simpleAsset,setSimpleAsset]=useState(SIMPLE_ASSETS[0]);
   const [report,setReport]=useState("");
   const [understanding,setUnderstanding]=useState([]);
@@ -675,7 +713,8 @@ function App(){
       </div>
     </header>
     {view==="setup" && <Setup onStart={start} onBacktest={runBacktest} backtestResult={backtestResult}
-      onSimple={()=>setView("simple1")} onCases={()=>setView("cases")} onProgress={()=>setView("progress")}/>}
+      onSimple={()=>setView("simple1")} onCases={()=>setView("cases")} onProgress={()=>setView("progress")}
+      onSupport={()=>setView("support")}/>}
     {view==="simple1" && <SimpleScreen1 onBack={()=>setView("setup")}
       onNext={(asset)=>{setSimpleAsset(asset); setView("simple2");}}/>}
     {view==="simple2" && <SimpleScreen2 initialAsset={simpleAsset} onBack={()=>setView("setup")}
@@ -685,6 +724,7 @@ function App(){
       onSkip={()=>setView("setup")}/>}
     {view==="cases" && <CasesScreen onBack={()=>setView("setup")}/>}
     {view==="progress" && <ProgressScreen onBack={()=>setView("setup")}/>}
+    {view==="support" && <SupportScreen onBack={()=>setView("setup")}/>}
     {view==="live" && (d ? <Dashboard d={d} journal={journal} onCmd={cmd} report=""/> : <div className="empty">Завантаження…</div>)}
     {view==="report" && (d ? <Dashboard d={d} journal={journal} onCmd={cmd} report={report} understanding={understanding} onNew={newCycle}/> : <div className="empty">Звіт недоступний</div>)}
     <div className="foot">
