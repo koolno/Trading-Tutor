@@ -2,7 +2,8 @@
 import json
 
 from core.data.providers import SyntheticProvider
-from core.engines.case_builder import Case, CaseBuilder
+from core.engines.case_builder import Case, CaseBuilder, case_from_journal
+from core.engines.journal import JournalEntry
 from core.engines.risk_engine import RiskEngine
 from core.engines.signal_engine import SignalEngine
 from core.knowledge.constitution import build_seed_constitution
@@ -76,3 +77,65 @@ def test_case_save_json_writes_utf8_cyrillic_without_crashing(tmp_path):
     loaded = json.loads(text)
     assert loaded["asset"] == case.asset
     assert len(loaded["trades"]) == len(case.trades)
+
+
+def test_case_builder_defaults_to_real_history_source():
+    case = _build()
+    assert case.source == "real_history"
+    assert case.to_dict()["source"] == "real_history"
+
+
+# --- case_from_journal (§PLAN E2 — «модель фотостоку») ------------------- #
+def _entry(**kw):
+    base = dict(ts="2026-07-02T10:00:00+00:00", asset="BTC/USDT", mode="paper",
+                direction="long", reason="r")
+    base.update(kw)
+    return JournalEntry(**base)
+
+
+def test_case_from_journal_builds_case_from_closed_entries():
+    entries = [
+        _entry(decision="opened"),
+        _entry(decision="rejected"),
+        _entry(decision="closed", result="loss", entry=100.0, stop_loss=97.0,
+               take_profit=106.0, exit=97.0, pnl_usd=-3.0),
+        _entry(decision="closed", result="win", entry=100.0, stop_loss=97.0,
+               take_profit=106.0, exit=106.0, pnl_usd=6.0),
+    ]
+    case = case_from_journal(entries, starting_equity=500.0, ending_equity=503.0)
+    assert case.source == "trainer_synthetic"
+    assert len(case.trades) == 2
+    assert case.rejected_by_risk == 1
+    assert case.asset == "BTC/USDT"
+    assert case.starting_equity == 500.0
+    assert case.ending_equity == 503.0
+
+
+def test_case_from_journal_marks_losses_as_protected():
+    entries = [
+        _entry(decision="closed", result="loss", pnl_usd=-3.0),
+        _entry(decision="closed", result="win", pnl_usd=6.0),
+    ]
+    case = case_from_journal(entries, 500.0, 503.0)
+    losses = [t for t in case.trades if t.result == "loss"]
+    wins = [t for t in case.trades if t.result == "win"]
+    assert all(t.protected_from_loss for t in losses)
+    assert all(not t.protected_from_loss for t in wins)
+
+
+def test_case_from_journal_raises_without_closed_trades():
+    entries = [_entry(decision="opened"), _entry(decision="rejected")]
+    try:
+        case_from_journal(entries, 500.0, 500.0)
+        assert False, "мало бути виключення — нема закритих угод"
+    except ValueError:
+        pass
+
+
+def test_case_from_journal_labels_multiple_assets():
+    entries = [
+        _entry(decision="closed", result="win", asset="BTC/USDT"),
+        _entry(decision="closed", result="loss", asset="ETH/USDT"),
+    ]
+    case = case_from_journal(entries, 500.0, 500.0)
+    assert "BTC/USDT" in case.asset and "ETH/USDT" in case.asset

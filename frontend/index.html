@@ -297,6 +297,8 @@ function SimpleScreen3({initialAsset,onBack,onTry,onSkip}){
 }
 
 const fDate = (iso) => iso ? iso.slice(0,10) : "—";
+const sourceLabel = (source) => source==="trainer_synthetic"
+  ? "🎓 Кейс тренажера (синтетичні дані)" : "📊 Реальна історія цін";
 
 function CasesScreen({onBack}){
   const [cases,setCases]=useState(null);
@@ -320,10 +322,11 @@ function CasesScreen({onBack}){
 
   if(selected){
     return (<div className="plain-card" style={{maxWidth:720}}>
-      <h3 style={{textAlign:"center"}}>Кейс: {selected.replace("_","/")}</h3>
+      <h3 style={{textAlign:"center"}}>Кейс: {detail ? detail.asset : selected.replace("_","/")}</h3>
       {!detail ? <div className="empty">Завантажуємо кейс…</div> : (<>
         <div className="card" style={{marginBottom:14}}>
           <div className="plain-price mono">{fDate(detail.period_start)} → {fDate(detail.period_end)}</div>
+          <div className="note" style={{marginBottom:8}}>{sourceLabel(detail.source)}</div>
           <p className="plain-headline" style={{fontSize:18}}>
             Результат: <span className={detail.total_return_pct>=0?"pos":"neg"}>
               {detail.total_return_pct>=0?"+":""}{detail.total_return_pct}%
@@ -376,9 +379,10 @@ function CasesScreen({onBack}){
 
   return (<div className="plain-card" style={{maxWidth:640}}>
     <DisclaimerBanner/>
-    <h3 style={{textAlign:"center"}}>Реальні кейси</h3>
+    <h3 style={{textAlign:"center"}}>Кейси</h3>
     <p className="note" style={{textAlign:"center",marginBottom:16}}>
-      Це реальна історія цін, без підбору вигідного періоду. Прибутки й збитки — обидва чесно.
+      Реальна історія цін (без підбору вигідного періоду) і кейси, якими поділились
+      користувачі з тренажера. Прибутки й збитки — обидва чесно.
     </p>
     {loading ? <div className="empty">Завантажуємо кейси…</div> :
       (!cases || !cases.length ? <div className="empty">Кейсів поки немає.</div> :
@@ -391,6 +395,7 @@ function CasesScreen({onBack}){
                   {c.total_return_pct>=0?"+":""}{c.total_return_pct}%</span>
               </div>
               <div className="case-period">{fDate(c.period_start)} → {fDate(c.period_end)} · {c.trades} угод</div>
+              <div className="note" style={{marginTop:4}}>{sourceLabel(c.source)}</div>
               {c.stop_loss_saves>0 && <div className="note" style={{marginTop:6,color:"var(--green)"}}>
                 🛡️ Захистило від збитку {c.stop_loss_saves} раз(и)</div>}
             </button>
@@ -526,6 +531,14 @@ function Dashboard({d,journal,onCmd,report,understanding,onNew}){
   const s=d.stats||{};
   const pnlCls=d.pnl>=0?"pos":"neg";
   const isReport=!!report;
+  const [shareMsg,setShareMsg]=useState("");
+  const shareCase=async()=>{
+    setShareMsg("Зберігаємо…");
+    const r=await call("/api/cases/share",{method:"POST"});
+    if(r&&r.error){ setShareMsg("Не вдалося зберегти кейс."); return; }
+    if(r&&r.detail){ setShareMsg(typeof r.detail==="string"?r.detail:"Не вдалося зберегти кейс."); return; }
+    setShareMsg("Готово! Твій кейс тепер у списку кейсів.");
+  };
   return (<div>
     {!isReport ?
       <div className="action-bar">
@@ -537,6 +550,8 @@ function Dashboard({d,journal,onCmd,report,understanding,onNew}){
       :
       <div className="action-bar">
         <button className="btn-go" onClick={onNew}>Почати новий цикл</button>
+        <button className="btn-ghost" onClick={shareCase}>Поділитися цим кейсом</button>
+        {shareMsg && <span className="note" style={{alignSelf:"center"}}>{shareMsg}</span>}
       </div>
     }
 

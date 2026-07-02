@@ -239,7 +239,8 @@ def advice(asset: str = "BTC/USDT"):
 
 
 # --------------------------------------------------------------------------- #
-#  Кейси на реальній історії (§D1) — «чесна вітрина»
+#  Кейси на реальній історії (§D1) + власні кейси користувача (§E2) —
+#  «чесна вітрина» за моделлю фотостоку: люди приносять свій контент
 # --------------------------------------------------------------------------- #
 _CASES_DIR = Path(__file__).resolve().parent.parent / "data" / "cases"
 _CASE_ID_RE = re.compile(r"^[A-Za-z0-9_]+$")
@@ -247,7 +248,7 @@ _CASE_ID_RE = re.compile(r"^[A-Za-z0-9_]+$")
 
 @app.get("/api/cases")
 def list_cases():
-    """Список чесних кейсів на реальній історії (§D1). Без прикрашання."""
+    """Список чесних кейсів — реальна історія (§D1) і власні кейси користувачів (§E2)."""
     cases = []
     if _CASES_DIR.exists():
         for f in sorted(_CASES_DIR.glob("*.json")):
@@ -264,8 +265,26 @@ def list_cases():
                 "trades": len(data.get("trades", [])),
                 "stop_loss_saves": data.get("stop_loss_saves", 0),
                 "rejected_by_risk": data.get("rejected_by_risk", 0),
+                "source": data.get("source", "real_history"),
             })
     return {"cases": cases}
+
+
+@app.post("/api/cases/share")
+def share_case():
+    """Поділитися своїм кейсом із поточної/останньої сесії (§E2, модель фотостоку)."""
+    from core.engines.case_builder import case_from_journal
+
+    session = _require_session()
+    try:
+        case = case_from_journal(
+            session.journal.entries, session.starting_equity, session.broker.equity)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+    case_id = f"user_{session.session_id}"
+    case.save_json(_CASES_DIR / f"{case_id}.json")
+    return {"message": "Кейс збережено", "id": case_id}
 
 
 @app.get("/api/cases/{case_id}")

@@ -21,7 +21,7 @@ from pathlib import Path
 
 from core.data.providers import Candle
 from core.data.quality import DataQualityEngine
-from core.engines.journal import Journal
+from core.engines.journal import Journal, JournalEntry
 from core.engines.paper_trading import PaperBroker, PaperTradingEngine
 from core.engines.risk_engine import RiskEngine
 from core.engines.signal_engine import SignalEngine
@@ -56,6 +56,7 @@ class Case:
     ending_equity: float
     trades: list[CaseTrade] = field(default_factory=list)
     rejected_by_risk: int = 0          # скільки разів Risk Engine заветував угоду
+    source: str = "real_history"       # "real_history" | "trainer_synthetic" (§E2)
 
     @property
     def total_return_pct(self) -> float:
@@ -96,6 +97,7 @@ class Case:
             "total_return_pct": self.total_return_pct,
             "rejected_by_risk": self.rejected_by_risk,
             "stop_loss_saves": len(self.stop_loss_saves),
+            "source": self.source,
             "trades": [asdict(t) for t in self.trades],
         }
 
@@ -191,3 +193,50 @@ class CaseBuilder:
             trades=trades,
             rejected_by_risk=rejected,
         )
+
+
+def case_from_journal(
+    entries: list[JournalEntry],
+    starting_equity: float,
+    ending_equity: float,
+    source: str = "trainer_synthetic",
+) -> Case:
+    """
+    Будує Case з уже завершеної сесії (§PLAN E2 — «модель фотостоку»: людина
+    сама ділиться своїм кейсом). На відміну від CaseBuilder.build(), нічого
+    не проганяє наново — просто чесно конвертує вже записаний журнал.
+
+    ВАЖЛИВО: source за замовчуванням "trainer_synthetic", бо сесії
+    тренажера/paper зараз працюють на синтетичних даних (SyntheticProvider),
+    а не на реальній історії — приховувати це було б нечесно (§3).
+    """
+    closed = [e for e in entries if e.decision == "closed"]
+    if not closed:
+        raise ValueError("Немає закритих угод — нема чого зберігати як кейс.")
+
+    trades = [
+        CaseTrade(
+            asset=e.asset, direction=e.direction,
+            opened_at=e.ts, closed_at=e.ts,
+            entry=e.entry or 0.0, stop_loss=e.stop_loss or 0.0,
+            take_profit=e.take_profit or 0.0, exit=e.exit or 0.0,
+            pnl_usd=e.pnl_usd or 0.0, result=e.result or "breakeven",
+            protected_from_loss=(e.result == "loss"),
+            supporting=e.supporting or [],
+        )
+        for e in closed
+    ]
+    rejected = len([e for e in entries if e.decision == "rejected"])
+    assets = sorted({t.asset for t in trades})
+    asset_label = assets[0] if len(assets) == 1 else " + ".join(assets)
+
+    return Case(
+        asset=asset_label,
+        period_start=trades[0].opened_at,
+        period_end=trades[-1].closed_at,
+        starting_equity=starting_equity,
+        ending_equity=round(ending_equity, 2),
+        trades=trades,
+        rejected_by_risk=rejected,
+        source=source,
+    )

@@ -78,3 +78,49 @@ def test_get_case_rejects_path_traversal(tmp_path, monkeypatch):
     with TestClient(main.app) as client:
         r = client.get("/api/cases/..%2F..%2Fsecrets")
     assert r.status_code in (404, 422)
+
+
+# --- Поділитися своїм кейсом (§E2, модель фотостоку) ---------------------- #
+def test_share_case_requires_active_session(tmp_path, monkeypatch):
+    monkeypatch.setattr(main, "_CASES_DIR", tmp_path)
+    monkeypatch.setattr(main, "_session", None)
+    with TestClient(main.app) as client:
+        r = client.post("/api/cases/share")
+    assert r.status_code == 400
+
+
+def test_share_case_requires_closed_trades(tmp_path, monkeypatch):
+    from core.session import Session, SessionConfig
+    session = Session(SessionConfig(risk_level="demo", assets=["BTC/USDT"]))
+    monkeypatch.setattr(main, "_CASES_DIR", tmp_path)
+    monkeypatch.setattr(main, "_session", session)
+    with TestClient(main.app) as client:
+        r = client.post("/api/cases/share")
+    assert r.status_code == 400
+
+
+def test_share_case_saves_and_appears_in_list(tmp_path, monkeypatch):
+    from core.session import Session, SessionConfig
+    session = Session(SessionConfig(risk_level="demo", assets=["BTC/USDT"], amount_usd=500))
+    session.start()
+    for _ in range(150):
+        session.tick()
+        if session.journal.closed_trades():
+            break
+    assert session.journal.closed_trades(), "тест потребує хоча б однієї закритої угоди"
+
+    monkeypatch.setattr(main, "_CASES_DIR", tmp_path)
+    monkeypatch.setattr(main, "_session", session)
+    with TestClient(main.app) as client:
+        r = client.post("/api/cases/share")
+        assert r.status_code == 200
+        case_id = r.json()["id"]
+        assert case_id.startswith("user_")
+
+        listing = client.get("/api/cases").json()["cases"]
+        shared = next(c for c in listing if c["id"] == case_id)
+        assert shared["source"] == "trainer_synthetic"
+
+        detail = client.get(f"/api/cases/{case_id}").json()
+        assert detail["source"] == "trainer_synthetic"
+        assert len(detail["trades"]) == len(session.journal.closed_trades())
