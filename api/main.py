@@ -173,6 +173,34 @@ def journal(limit: int = 20):
     return {"entries": _require_session().recent_journal(limit)}
 
 
+@app.get("/api/progress")
+def progress():
+    """Збережений прогрес за весь час (§E1) — не бали, не рівні (§C3)."""
+    from core.engines.progress import build_progress_summary
+    from core.storage.db import CycleSummary
+    from core.storage.db import get_session as db_session
+
+    s = db_session()
+    try:
+        rows = s.query(CycleSummary).order_by(CycleSummary.ended_at.desc()).all()
+        cycles = len(rows)
+        total_trades = sum(r.trades for r in rows)
+        total_stop_loss_saves = sum(r.stop_loss_saves for r in rows)
+        total_rejected = sum(r.rejected for r in rows)
+        history = [
+            {"session_id": r.session_id, "ended_at": r.ended_at.isoformat(),
+             "starting_equity": r.starting_equity, "ending_equity": r.ending_equity,
+             "trades": r.trades, "win_rate": r.win_rate,
+             "stop_loss_saves": r.stop_loss_saves, "rejected": r.rejected}
+            for r in rows
+        ]
+    finally:
+        s.close()
+
+    summary = build_progress_summary(cycles, total_trades, total_stop_loss_saves, total_rejected)
+    return {**summary.to_dict(), "history": history}
+
+
 # набір активів і параметрів синтетичних даних, узгоджений із core/session.py,
 # щоб «просте» демо-подання ситуації виглядало так само, як і сама стратегія
 _SITUATION_SEEDS = {

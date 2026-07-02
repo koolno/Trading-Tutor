@@ -223,12 +223,14 @@ class Session:
             from core.storage.db import get_session as db_session, CycleSummary, TradeRecord
             stats = compute_stats(self.journal.closed_trades())
             pf = None if stats.profit_factor == float("inf") else stats.profit_factor
+            rejected = len([e for e in self.journal.entries if e.decision == "rejected"])
             s = db_session()
             try:
                 s.add(CycleSummary(
                     session_id=self.session_id, starting_equity=self.starting_equity,
                     ending_equity=self.broker.equity, trades=stats.trades,
                     win_rate=stats.win_rate, profit_factor=pf, report_text=report,
+                    stop_loss_saves=stats.losses, rejected=rejected,
                 ))
                 for e in self.journal.entries:
                     s.add(TradeRecord(

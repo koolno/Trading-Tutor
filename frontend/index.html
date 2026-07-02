@@ -402,6 +402,50 @@ function CasesScreen({onBack}){
   </div>);
 }
 
+function ProgressScreen({onBack}){
+  const [p,setP]=useState(null);
+  const [loading,setLoading]=useState(true);
+
+  useEffect(()=>{
+    call("/api/progress").then(r=>{
+      if(r && !r.error){ setP(r); setLoading(false); }
+    });
+  },[]);
+
+  return (<div className="plain-card" style={{maxWidth:640}}>
+    <h3 style={{textAlign:"center"}}>Твій прогрес</h3>
+    <p className="note" style={{textAlign:"center",marginBottom:16}}>
+      Чесний підсумок усіх твоїх минулих циклів — без балів і рівнів.
+    </p>
+    {loading||!p ? <div className="empty">Завантажуємо прогрес…</div> : (<>
+      <div className="card" style={{marginBottom:14}}>
+        <ul className="plain-details" style={{margin:0}}>
+          {p.insights.map((line,i)=><li key={i}>{line}</li>)}
+        </ul>
+      </div>
+      {p.history&&p.history.length>0 && <div className="card">
+        <h3>Історія циклів</h3>
+        <table className="case-table">
+          <thead><tr><th>Дата</th><th>Угод</th><th>Стоп-лос захистив</th><th>Результат</th></tr></thead>
+          <tbody>{p.history.map((c,i)=>{
+            const pnl = c.ending_equity - c.starting_equity;
+            return (<tr key={i}>
+              <td>{fDate(c.ended_at)}</td>
+              <td>{c.trades}</td>
+              <td>{c.stop_loss_saves}</td>
+              <td className={"mono "+(pnl>0?"pos":pnl<0?"neg":"")}>
+                {pnl>0?"+":""}{f2(pnl)} USD</td>
+            </tr>);
+          })}</tbody>
+        </table>
+      </div>}
+    </>)}
+    <div style={{textAlign:"center",marginTop:16}}>
+      <button className="link-btn" onClick={onBack}>← Назад</button>
+    </div>
+  </div>);
+}
+
 function DisclaimerBanner(){
   return (<div className="disclaimer-box">
     <span className="icon">⚠️</span>
@@ -413,7 +457,7 @@ function DisclaimerBanner(){
   </div>);
 }
 
-function Setup({onStart,onBacktest,backtestResult,onSimple,onCases}){
+function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress}){
   const [amount,setAmount]=useState(500);
   const [risk,setRisk]=useState("conservative");
   const [mode,setMode]=useState("paper");
@@ -426,8 +470,11 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases}){
     <div style={{textAlign:"center",marginBottom:8}}>
       <button className="link-btn" onClick={onSimple}>Спочатку простий огляд (3 кроки) →</button>
     </div>
-    <div style={{textAlign:"center",marginBottom:16}}>
+    <div style={{textAlign:"center",marginBottom:8}}>
       <button className="link-btn" onClick={onCases}>Подивитись реальні кейси →</button>
+    </div>
+    <div style={{textAlign:"center",marginBottom:16}}>
+      <button className="link-btn" onClick={onProgress}>Твій прогрес →</button>
     </div>
     <div className="setup">
       <div className="field"><label>Сума для роботи (USD)</label>
@@ -559,7 +606,7 @@ function Dashboard({d,journal,onCmd,report,understanding,onNew}){
 function App(){
   const [d,setD]=useState(null);
   const [journal,setJournal]=useState([]);
-  const [view,setView]=useState("setup");   // setup | simple1 | simple2 | simple3 | cases | live | report
+  const [view,setView]=useState("setup");   // setup | simple1 | simple2 | simple3 | cases | progress | live | report
   const [simpleAsset,setSimpleAsset]=useState(SIMPLE_ASSETS[0]);
   const [report,setReport]=useState("");
   const [understanding,setUnderstanding]=useState([]);
@@ -613,7 +660,7 @@ function App(){
       </div>
     </header>
     {view==="setup" && <Setup onStart={start} onBacktest={runBacktest} backtestResult={backtestResult}
-      onSimple={()=>setView("simple1")} onCases={()=>setView("cases")}/>}
+      onSimple={()=>setView("simple1")} onCases={()=>setView("cases")} onProgress={()=>setView("progress")}/>}
     {view==="simple1" && <SimpleScreen1 onBack={()=>setView("setup")}
       onNext={(asset)=>{setSimpleAsset(asset); setView("simple2");}}/>}
     {view==="simple2" && <SimpleScreen2 initialAsset={simpleAsset} onBack={()=>setView("setup")}
@@ -622,6 +669,7 @@ function App(){
       onTry={(asset)=>start({amount_usd:500, risk_level:"demo", mode:"paper", assets:[asset]})}
       onSkip={()=>setView("setup")}/>}
     {view==="cases" && <CasesScreen onBack={()=>setView("setup")}/>}
+    {view==="progress" && <ProgressScreen onBack={()=>setView("setup")}/>}
     {view==="live" && (d ? <Dashboard d={d} journal={journal} onCmd={cmd} report=""/> : <div className="empty">Завантаження…</div>)}
     {view==="report" && (d ? <Dashboard d={d} journal={journal} onCmd={cmd} report={report} understanding={understanding} onNew={newCycle}/> : <div className="empty">Звіт недоступний</div>)}
     <div className="foot">

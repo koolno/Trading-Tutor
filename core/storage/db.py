@@ -105,6 +105,8 @@ class CycleSummary(Base):
     win_rate: Mapped[float] = mapped_column(Float, default=0.0)
     profit_factor: Mapped[float | None] = mapped_column(Float, nullable=True)
     report_text: Mapped[str] = mapped_column(Text, default="")
+    stop_loss_saves: Mapped[int] = mapped_column(Integer, default=0)
+    rejected: Mapped[int] = mapped_column(Integer, default=0)
 
 
 # --------------------------------------------------------------------------- #
@@ -115,8 +117,16 @@ _SessionLocal = None
 
 
 def init_db(url: str | None = None):
-    """Створює engine і таблиці. Викликати один раз при старті застосунку."""
+    """
+    Створює engine і таблиці. Ідемпотентно, якщо url не задано явно: повторний
+    виклик (напр. від FastAPI startup-події) не затирає вже ініціалізований
+    engine — інакше тест чи виклик коду, що свідомо підключив окрему БД
+    (наприклад, sqlite:///:memory:), втратив би своє підключення при
+    повторному старті застосунку. Явний url завжди перепідключає.
+    """
     global _engine, _SessionLocal
+    if _engine is not None and url is None:
+        return _engine
     _engine = create_engine(url or _database_url(), future=True)
     _SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False, class_=OrmSession)
     Base.metadata.create_all(_engine)
