@@ -39,6 +39,13 @@ class SessionConfig:
     cycle_months: int = 2
     live_enabled: bool = False            # реальні гроші (за замовч. вимкнено)
     live_confirmed: bool = False          # користувач явно підтвердив live
+    # "fast_sim" — прискорена симуляція на синтетичних даних (типово ~7200x
+    # реального часу, див. api/main.py TICKS_PER_POLL + частота опитування);
+    # "live_realtime" — реальні ціни з біржі в реальному темпі. В ОБОХ
+    # випадках гроші паперові (PaperBroker) — це НЕ те саме, що live_enabled
+    # (реальні гроші через LiveTradingAdapter, окремий, суворіше захищений шлях).
+    market_mode: str = "fast_sim"
+    live_interval_sec: int = 60           # як часто тягнути нову ціну в live_realtime
 
     def to_risk_config(self) -> RiskConfig:
         if self.risk_level == "demo":
@@ -81,28 +88,38 @@ class Session:
         self.dq = DataQualityEngine()
         self.starting_equity = config.amount_usd
 
-        # Готуємо дані наперед. Для офлайн-демо генеруємо довгу синтетичну
-        # історію на кожен актив один раз; курсор іде вперед по ній.
-        # У live-режимі сюди підставляється CcxtProvider (свічки з біржі).
         self._series: dict[str, list] = {}
         self.providers: dict[str, MarketDataProvider] = {}
-        # у демо — виразніші тренди й волатильність, щоб швидко з'явилися угоди
-        if config.is_demo:
-            seeds = {"BTC/USDT": (1, 60000, 0.004), "ETH/USDT": (7, 3000, 0.0035),
-                     "SOL/USDT": (3, 150, 0.005)}
-            demo_vol = 0.013
+        self._last_live_fetch: datetime | None = None
+
+        if config.market_mode == "live_realtime":
+            # Реальні ціни з біржі, реальний темп: одна свічка = одна реальна
+            # хвилина, оновлення раз на live_interval_sec (типово 60с). Гроші
+            # й тут паперові (PaperBroker) — окремо від live_enabled/LiveTradingAdapter.
+            live_provider = provider or self._default_live_provider()
+            for a in config.assets:
+                self.providers[a] = live_provider
+                self._series[a] = live_provider.fetch_ohlcv(a, "1m", limit=200)
         else:
-            seeds = {"BTC/USDT": (1, 60000, 0.0015), "ETH/USDT": (7, 3000, 0.0012),
-                     "SOL/USDT": (3, 150, 0.001)}
-            demo_vol = 0.015
-        for a in config.assets:
-            default_drift = 0.003 if config.is_demo else 0.001
-            seed, price, drift = seeds.get(a, (abs(hash(a)) % 1000, 100, default_drift))
-            p = provider or SyntheticProvider(
-                seed=seed, start_price=price, drift=drift, vol=demo_vol)
-            self.providers[a] = p
-            # 1000 свічок наперед — вистачає на тривалий безперервний цикл
-            self._series[a] = p.fetch_ohlcv(a, "1h", limit=1000)
+            # Готуємо дані наперед. Для офлайн-демо генеруємо довгу синтетичну
+            # історію на кожен актив один раз; курсор іде вперед по ній.
+            # у демо — виразніші тренди й волатильність, щоб швидко з'явилися угоди
+            if config.is_demo:
+                seeds = {"BTC/USDT": (1, 60000, 0.004), "ETH/USDT": (7, 3000, 0.0035),
+                         "SOL/USDT": (3, 150, 0.005)}
+                demo_vol = 0.013
+            else:
+                seeds = {"BTC/USDT": (1, 60000, 0.0015), "ETH/USDT": (7, 3000, 0.0012),
+                         "SOL/USDT": (3, 150, 0.001)}
+                demo_vol = 0.015
+            for a in config.assets:
+                default_drift = 0.003 if config.is_demo else 0.001
+                seed, price, drift = seeds.get(a, (abs(hash(a)) % 1000, 100, default_drift))
+                p = provider or SyntheticProvider(
+                    seed=seed, start_price=price, drift=drift, vol=demo_vol)
+                self.providers[a] = p
+                # 1000 свічок наперед — вистачає на тривалий безперервний цикл
+                self._series[a] = p.fetch_ohlcv(a, "1h", limit=1000)
 
         self.running = False
         self.paused = False
@@ -110,9 +127,14 @@ class Session:
         self.session_id = uuid.uuid4().hex[:16]
         self.last_action = "Сесія створена. Натисніть «Почати стратегію»."
         self.equity_curve: list[float] = [config.amount_usd]
-        self._cursor = 60  # позиція у підготовленій історії
+        self._cursor = 60  # позиція у підготовленій історії (лише fast_sim)
         self._max_curve = 300  # обмеження довжини кривої для дашборду
         self._lock = threading.Lock()
+
+    @staticmethod
+    def _default_live_provider() -> MarketDataProvider:
+        from core.data.providers import CcxtProvider
+        return CcxtProvider("binance")
 
     # --------------------------------------------------------------------- #
     #  Один тік стратегії
@@ -121,51 +143,91 @@ class Session:
         if not self.running or self.paused:
             return
         with self._lock:
-            for asset in self.providers:
-                series = self._series[asset]
-                if self._cursor >= len(series):
-                    continue
-                window = series[: self._cursor + 1]
-                if len(window) < 60:
-                    continue
-                current = window[-1]
-                # закрити позиції за діапазоном поточної свічки
-                close_narrations = []
-                for pos, pnl, result in self.broker.update_candle(
-                        asset, current.high, current.low):
-                    self._journal_close(pos, pnl, result, current.close)
-                    close_narrations.append(narrate_entry_uk(self.journal.entries[-1]))
-                report = self.dq.check(window, "1h", check_staleness=False)
-                factors, snapshot = self.ta.analyze(
-                    asset, window, report.reliable, report.issues)
-                # новини оновлюємо періодично (кожні 24 тіки ≈ добу), кешуємо
-                if asset not in self._news_cache or self._cursor % 24 == 0:
-                    self._news_cache[asset] = self.news.analyze(asset)
-                news_ctx = self._news_cache[asset]
-                before = len(self.journal.entries)
-                msg = self.engine.step(snapshot, factors,
-                                       update_positions=False, news=news_ctx)
-                if len(self.journal.entries) > before:
-                    step_narration = narrate_entry_uk(self.journal.entries[-1])
-                elif msg.startswith("⏳"):
-                    step_narration = narrate_wait_uk(asset, msg)
-                elif msg.startswith("⛔"):
-                    step_narration = narrate_emergency_stop_uk(
-                        asset, msg.split(":", 1)[-1])
-                else:
-                    step_narration = msg.splitlines()[0]
-                # подія закриття важливіша за цей тік — показуємо саме її, якщо була
-                self.last_action = close_narrations[-1] if close_narrations else step_narration
+            if self.config.market_mode == "live_realtime":
+                self._tick_live()
+            else:
+                self._tick_fast()
+
+    def _tick_fast(self) -> None:
+        for asset in self.providers:
+            series = self._series[asset]
+            if self._cursor >= len(series):
+                continue
+            window = series[: self._cursor + 1]
+            if len(window) < 60:
+                continue
+            if asset not in self._news_cache or self._cursor % 24 == 0:
+                self._news_cache[asset] = self.news.analyze(asset)
+            self._process_window(asset, window, timeframe="1h", check_staleness=False,
+                                 news_ctx=self._news_cache[asset])
+        self.equity_curve.append(round(self.broker.equity, 2))
+        if len(self.equity_curve) > self._max_curve:
+            self.equity_curve = self.equity_curve[-self._max_curve:]
+        self._cursor += 1
+        # коли історія вичерпана — завершуємо цикл і пропонуємо звіт
+        if self._cursor >= len(next(iter(self._series.values()))):
+            self.running = False
+            self.last_action = (
+                "Навчальний цикл завершено. Натисніть «Зупинити і "
+                "проаналізувати» для звіту.")
+
+    def _tick_live(self) -> None:
+        now = datetime.now(timezone.utc)
+        interval = self.config.live_interval_sec
+        if self._last_live_fetch is not None:
+            elapsed = (now - self._last_live_fetch).total_seconds()
+            if elapsed < interval:
+                remaining = int(interval - elapsed)
+                self.last_action = f"Live: наступне оновлення ціни через {remaining} с."
+                return
+        self._last_live_fetch = now
+        processed = False
+        for asset in self.providers:
+            try:
+                candles = self.providers[asset].fetch_ohlcv(asset, "1m", limit=200)
+            except Exception as e:
+                self.last_action = f"{asset}: не вдалося отримати дані з біржі ({e})."
+                continue
+            if len(candles) < 60:
+                continue
+            self._series[asset] = candles
+            if asset not in self._news_cache:
+                self._news_cache[asset] = self.news.analyze(asset)
+            self._process_window(asset, candles, timeframe="1m", check_staleness=True,
+                                 news_ctx=self._news_cache[asset])
+            processed = True
+        if processed:
             self.equity_curve.append(round(self.broker.equity, 2))
             if len(self.equity_curve) > self._max_curve:
                 self.equity_curve = self.equity_curve[-self._max_curve:]
-            self._cursor += 1
-            # коли історія вичерпана — завершуємо цикл і пропонуємо звіт
-            if self._cursor >= len(next(iter(self._series.values()))):
-                self.running = False
-                self.last_action = (
-                    "Навчальний цикл завершено. Натисніть «Зупинити і "
-                    "проаналізувати» для звіту.")
+
+    def _process_window(self, asset, window, timeframe: str, check_staleness: bool, news_ctx):
+        """Спільна логіка для fast_sim і live_realtime — сама торгова логіка
+        не змінюється, лише джерело й темп надходження свічок (§F)."""
+        current = window[-1]
+        # закрити позиції за діапазоном поточної свічки
+        close_narrations = []
+        for pos, pnl, result in self.broker.update_candle(
+                asset, current.high, current.low):
+            self._journal_close(pos, pnl, result, current.close)
+            close_narrations.append(narrate_entry_uk(self.journal.entries[-1]))
+        report = self.dq.check(window, timeframe, check_staleness=check_staleness)
+        factors, snapshot = self.ta.analyze(
+            asset, window, report.reliable, report.issues)
+        before = len(self.journal.entries)
+        msg = self.engine.step(snapshot, factors,
+                               update_positions=False, news=news_ctx)
+        if len(self.journal.entries) > before:
+            step_narration = narrate_entry_uk(self.journal.entries[-1])
+        elif msg.startswith("⏳"):
+            step_narration = narrate_wait_uk(asset, msg)
+        elif msg.startswith("⛔"):
+            step_narration = narrate_emergency_stop_uk(
+                asset, msg.split(":", 1)[-1])
+        else:
+            step_narration = msg.splitlines()[0]
+        # подія закриття важливіша за цей тік — показуємо саме її, якщо була
+        self.last_action = close_narrations[-1] if close_narrations else step_narration
 
     def _journal_close(self, pos, pnl, result, exit_price):
         self.journal.add(JournalEntry(
@@ -261,6 +323,7 @@ class Session:
             "mode": self.config.mode.value,
             "risk_level": self.config.risk_level,
             "is_demo": self.config.is_demo,
+            "market_mode": self.config.market_mode,
             "balance": round(self.broker.equity, 2),
             "starting": self.starting_equity,
             "pnl": round(self.broker.equity - self.starting_equity, 2),

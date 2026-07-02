@@ -28,6 +28,7 @@
   .st-pause{color:var(--gold);border-color:rgba(212,168,67,.4);background:rgba(212,168,67,.08)}
   .st-stop{color:var(--muted)}
   .badge-demo{color:var(--gold);border-color:rgba(212,168,67,.4);background:rgba(212,168,67,.08)}
+  .badge-live{color:var(--blue);border-color:rgba(90,143,212,.4);background:rgba(90,143,212,.08)}
   .grid{display:grid;gap:14px}
   .cols-4{grid-template-columns:repeat(4,1fr)}
   .cols-2{grid-template-columns:1.6fr 1fr}
@@ -501,6 +502,7 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress,on
   const [amount,setAmount]=useState(500);
   const [risk,setRisk]=useState("conservative");
   const [mode,setMode]=useState("paper");
+  const [marketMode,setMarketMode]=useState("fast_sim");
   const [confirmed,setConfirmed]=useState(false);
   const passed = backtestResult && backtestResult.passed;
   return (<>
@@ -539,6 +541,18 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress,on
         </div>
       </div>
 
+      <div className="field"><label>Дані ринку</label>
+        <div className="seg">
+          <button className={marketMode==="fast_sim"?"on":""} onClick={()=>setMarketMode("fast_sim")}>⚡ Швидка симуляція</button>
+          <button className={marketMode==="live_realtime"?"on":""} onClick={()=>setMarketMode("live_realtime")}>🌐 Реальний час</button>
+        </div>
+        <p className="note">
+          {marketMode==="fast_sim"
+            ? "Синтетична історія прискорено — цикл проходить за хвилини. Гроші завжди паперові."
+            : "Справжні ціни з біржі (Binance) у реальному темпі, оновлення раз на хвилину. Гроші все одно паперові — це НЕ Live-режим вище."}
+        </p>
+      </div>
+
       {mode==="live" && <div className="field" style={{background:"var(--panel2)",padding:12,borderRadius:8}}>
         <p className="note" style={{marginTop:0}}><b>Перед реальними грошима потрібно:</b></p>
         <p className="note">1. Пройти backtest (перевірка на історії).</p>
@@ -553,11 +567,11 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress,on
       </div>}
 
       {mode==="paper" ?
-        <button className="btn-go" onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"paper"})}>
+        <button className="btn-go" onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"paper",market_mode:marketMode})}>
           Почати стратегію</button>
         :
         <button className="btn-go" disabled={!passed||!confirmed}
-          onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"live",live_confirmed:confirmed})}>
+          onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"live",live_confirmed:confirmed,market_mode:marketMode})}>
           {passed&&confirmed?"Почати з реальними грошима":"Виконайте умови вище"}</button>
       }
     </div>
@@ -709,6 +723,7 @@ function App(){
       <div className="brand">Помічник трейдера<small>Поступовий ріст капіталу · контроль ризику</small></div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         {d&&d.is_demo && <div className="status-pill badge-demo">🎓 Тренажер</div>}
+        {d&&d.market_mode==="live_realtime" && <div className="status-pill badge-live">🌐 Реальний час</div>}
         <div className={"status-pill "+status[0]}>{status[1]}</div>
       </div>
     </header>
