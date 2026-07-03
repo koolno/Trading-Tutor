@@ -55,6 +55,7 @@ class PaperBroker:
         self.consecutive_losses = 0
         self.daily_risk_used_pct = 0.0
         self.weekly_risk_used_pct = 0.0
+        self.cooldown_remaining = 0   # тіків/свічок лишилось до кінця cooldown
 
     def account_state(self) -> AccountState:
         return AccountState(
@@ -64,7 +65,21 @@ class PaperBroker:
             weekly_risk_used_pct=self.weekly_risk_used_pct,
             open_positions=len(self.positions),
             consecutive_losses=self.consecutive_losses,
+            in_cooldown=self.cooldown_remaining > 0,
         )
+
+    def start_cooldown(self, ticks: int) -> None:
+        """Пауза на певну кількість тіків, а не назавжди — інакше після
+        loss streak Risk Engine блокував би угоди безкінечно (жодна нова
+        угода = жодного шансу на перемогу, яка скидає consecutive_losses)."""
+        self.cooldown_remaining = ticks
+        self.consecutive_losses = 0
+
+    def advance_cooldown(self) -> None:
+        """Викликається раз на тік, незалежно від того, чи була угода —
+        інакше лічильник ніколи б не дійшов до нуля."""
+        if self.cooldown_remaining > 0:
+            self.cooldown_remaining -= 1
 
     def _apply_slippage(self, price: float, direction: Direction, entering: bool) -> float:
         s = self.slippage_pct / 100
@@ -73,7 +88,8 @@ class PaperBroker:
             return price * (1 + s)
         return price * (1 - s)
 
-    def open(self, idea: TradeIdea, size: float, risk_usd: float) -> Position:
+    def open(self, idea: TradeIdea, size: float, risk_usd: float,
+             opened_at: datetime | None = None) -> Position:
         fill = self._apply_slippage(idea.entry_price, idea.direction, entering=True)
         commission = fill * size * self.commission_pct / 100
         self.equity -= commission
@@ -81,7 +97,7 @@ class PaperBroker:
             asset=idea.asset, direction=idea.direction, entry=fill,
             stop_loss=idea.stop_loss, take_profit=idea.take_profit,
             size=size, risk_usd=risk_usd,
-            opened_at=datetime.now(timezone.utc).isoformat(),
+            opened_at=(opened_at or datetime.now(timezone.utc)).isoformat(),
             supporting=idea.supporting_factors, rules_fired=idea.rules_fired,
         )
         self.positions.append(pos)
@@ -149,12 +165,24 @@ class PaperTradingEngine:
         self.journal = journal
 
     def step(self, market: MarketSnapshot, tech: TechnicalFactors,
-             update_positions: bool = True, news=None) -> str:
+             update_positions: bool = True, news=None,
+             as_of: datetime | None = None) -> str:
+        # as_of — час свічки, що зараз обробляється: у fast_sim/historical це
+        # симульований момент з минулого, а НЕ реальний "зараз" (інакше
+        # журнал показував би поточний час для подій, що "сталися" в 2022
+        # чи 2025 роках). У live_realtime as_of — це фактично реальний час,
+        # бо це час останньої отриманої з біржі свічки.
+        as_of = as_of or datetime.now(timezone.utc)
+
+        # 0. просунути cooldown-таймер на один тік (незалежно від результату
+        # цього тіку — інакше лічильник ніколи б не дійшов до нуля)
+        self.broker.advance_cooldown()
+
         # 1. оновити відкриті позиції (можна пропустити, якщо викликач робить це сам)
         if update_positions:
             for pos, pnl, result in self.broker.update(market.asset, market.price):
                 self.journal.add(JournalEntry(
-                    ts=datetime.now(timezone.utc).isoformat(),
+                    ts=as_of.isoformat(),
                     asset=pos.asset, mode="paper", direction=pos.direction.value,
                     decision="closed", reason="стоп/тейк",
                     rules_fired=pos.rules_fired, supporting=pos.supporting,
@@ -163,6 +191,14 @@ class PaperTradingEngine:
                     lesson="перемога — сетап спрацював" if result == "win"
                            else "збиток — переглянути фактори входу",
                 ))
+
+        # якщо серія збитків щойно досягла порогу — стартуємо cooldown НА ЧАС,
+        # а не назавжди (без нової угоди не буде перемоги, яка б скинула
+        # consecutive_losses, тож вічний поріг = вічне блокування)
+        c = self.risk.config
+        if (self.broker.cooldown_remaining == 0
+                and self.broker.consecutive_losses >= c.loss_streak_cooldown):
+            self.broker.start_cooldown(c.cooldown_ticks)
 
         # 2. emergency stop?
         triggered, reason = self.risk.emergency_stop_triggered(self.broker.account_state())
@@ -179,14 +215,15 @@ class PaperTradingEngine:
         if verdict.is_blocked:
             self.journal.record_rejection(
                 market.asset, "paper", idea.direction.value,
-                "; ".join(verdict.blocking_reasons), idea.rules_fired,
+                "; ".join(verdict.blocking_reasons), idea.rules_fired, ts=as_of,
             )
             return f"🚫 {verdict.explanation_uk}"
 
         # 5. відкриваємо
-        pos = self.broker.open(idea, verdict.position_size_units, verdict.risk_amount_usd)
+        pos = self.broker.open(idea, verdict.position_size_units, verdict.risk_amount_usd,
+                               opened_at=as_of)
         self.journal.add(JournalEntry(
-            ts=datetime.now(timezone.utc).isoformat(),
+            ts=as_of.isoformat(),
             asset=pos.asset, mode="paper", direction=pos.direction.value,
             decision="opened", reason=idea.why_now,
             rules_fired=idea.rules_fired, supporting=idea.supporting_factors,

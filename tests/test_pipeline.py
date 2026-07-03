@@ -5,11 +5,12 @@ from core.data.providers import Candle, SyntheticProvider
 from core.data.quality import DataQualityEngine
 from core.engines.journal import Journal, JournalEntry
 from core.engines.learning import ParetoAnalyzer, compute_stats
-from core.engines.paper_trading import PaperBroker
-from core.engines.signal_engine import SignalEngine
+from core.engines.paper_trading import PaperBroker, PaperTradingEngine
+from core.engines.risk_engine import RiskConfig, RiskEngine
+from core.engines.signal_engine import SignalEngine, TechnicalFactors
 from core.engines.technical import TechnicalAnalysis, atr_pct, ema, rsi
 from core.knowledge.constitution import build_seed_constitution
-from core.models.types import Direction, MarketRegime, TradeIdea, Confidence
+from core.models.types import Direction, MarketRegime, MarketSnapshot, TradeIdea, Confidence
 
 
 def _candles(n=120):
@@ -87,6 +88,37 @@ def test_paper_broker_long_stop_loss():
     assert closed[0][2] == "loss"
     assert b.equity < 500
     assert b.consecutive_losses == 1
+
+
+def test_loss_streak_cooldown_recovers_instead_of_blocking_forever():
+    """Раніше consecutive_losses скидався лише перемогою — але під час
+    блокування угод перемога неможлива, тож поріг блокував НАЗАВЖДИ. Тепер
+    cooldown має тривалість (cooldown_ticks) і сам собою минає."""
+    risk = RiskEngine(RiskConfig(loss_streak_cooldown=1, cooldown_ticks=2))
+    broker = PaperBroker(starting_equity=500, commission_pct=0, slippage_pct=0)
+    journal = Journal()
+    signal = SignalEngine(build_seed_constitution(), min_confirmations=2)
+    engine = PaperTradingEngine(signal, risk, broker, journal)
+
+    idea = TradeIdea(asset="X/Y", direction=Direction.LONG, time_horizon="t",
+                     entry_price=100, stop_loss=97, take_profit=106,
+                     why_now="t", confidence=Confidence.STRONG)
+    broker.open(idea, size=1.0, risk_usd=3.0)
+    broker.update_candle("X/Y", high=100, low=96)  # стоп -> 1 збиток, поріг = 1
+
+    market = MarketSnapshot(asset="X/Y", price=100, liquidity_score=1.0)
+    tech = TechnicalFactors()
+
+    engine.step(market, tech, update_positions=False)
+    acc = broker.account_state()
+    assert acc.in_cooldown
+    assert acc.consecutive_losses == 0  # скинуто одразу при старті cooldown
+
+    engine.step(market, tech, update_positions=False)
+    assert broker.account_state().in_cooldown  # ще триває (cooldown_ticks=2)
+
+    engine.step(market, tech, update_positions=False)
+    assert not broker.account_state().in_cooldown  # минув сам собою — торгівля відновлена
 
 
 # --- Learning / stats -------------------------------------------------- #

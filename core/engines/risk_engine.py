@@ -33,6 +33,7 @@ class RiskConfig(BaseModel):
     min_liquidity_score: float = 0.4
     max_volatility_atr_pct: float = 15.0       # фільтр екстремальної волатильності
     loss_streak_cooldown: int = 3              # к-сть збитків до cooldown
+    cooldown_ticks: int = 20                   # тривалість cooldown (у тіках/свічках)
     allow_leverage: bool = False               # за замовч. без плеча
 
 

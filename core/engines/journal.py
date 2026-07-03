@@ -45,17 +45,18 @@ class Journal:
         if self.path:
             self._flush()
 
-    def record_rejection(self, asset, mode, direction, reason, rules=None):
+    def record_rejection(self, asset, mode, direction, reason, rules=None,
+                          ts: datetime | None = None):
         self.add(JournalEntry(
-            ts=datetime.now(timezone.utc).isoformat(),
+            ts=(ts or datetime.now(timezone.utc)).isoformat(),
             asset=asset, mode=mode, direction=direction,
             decision="rejected", reason=reason, rules_fired=rules or [],
         ))
 
-    def add_close(self, pos, pnl, result, exit_price, mode="paper"):
+    def add_close(self, pos, pnl, result, exit_price, mode="paper", ts: datetime | None = None):
         """Єдиний спосіб журналювати закриття позиції (використовують і сесія, і бектест)."""
         self.add(JournalEntry(
-            ts=datetime.now(timezone.utc).isoformat(),
+            ts=(ts or datetime.now(timezone.utc)).isoformat(),
             asset=pos.asset, mode=mode, direction=pos.direction.value,
             decision="closed", reason="стоп/тейк", rules_fired=pos.rules_fired,
             supporting=pos.supporting, entry=pos.entry, stop_loss=pos.stop_loss,

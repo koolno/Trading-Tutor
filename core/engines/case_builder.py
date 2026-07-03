@@ -163,11 +163,7 @@ class CaseBuilder:
 
             report = self.dq.check(window, "1h", check_staleness=False)
             factors, snapshot = self.ta.analyze(asset, window, report.reliable, report.issues)
-            before = len(broker.positions)
-            engine.step(snapshot, factors, update_positions=False)
-            if len(broker.positions) > before:
-                # реальна дата входу замість datetime.now() з PaperBroker.open()
-                broker.positions[-1].opened_at = current.ts.isoformat()
+            engine.step(snapshot, factors, update_positions=False, as_of=current.ts)
 
         # позиції, що лишились відкритими на кінець періоду, закриваємо по
         # останній ціні — так само, як це робить Backtester/Session.close_all()

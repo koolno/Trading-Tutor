@@ -226,14 +226,18 @@ class Session:
         close_narrations = []
         for pos, pnl, result in self.broker.update_candle(
                 asset, current.high, current.low):
-            self._journal_close(pos, pnl, result, current.close)
+            self._journal_close(pos, pnl, result, current.close, current.ts)
             close_narrations.append(narrate_entry_uk(self.journal.entries[-1]))
         report = self.dq.check(window, timeframe, check_staleness=check_staleness)
         factors, snapshot = self.ta.analyze(
             asset, window, report.reliable, report.issues)
         before = len(self.journal.entries)
+        # as_of=current.ts — час свічки, а не datetime.now(): у fast_sim/
+        # historical це симульований момент з минулого, журнал має показувати
+        # ЙОГО, а не реальний поточний час (§ issue: журнал завжди показував
+        # "зараз" навіть для угод 2022/2025 років)
         msg = self.engine.step(snapshot, factors,
-                               update_positions=False, news=news_ctx)
+                               update_positions=False, news=news_ctx, as_of=current.ts)
         if len(self.journal.entries) > before:
             step_narration = narrate_entry_uk(self.journal.entries[-1])
         elif msg.startswith("⏳"):
@@ -246,9 +250,9 @@ class Session:
         # подія закриття важливіша за цей тік — показуємо саме її, якщо була
         self.last_action = close_narrations[-1] if close_narrations else step_narration
 
-    def _journal_close(self, pos, pnl, result, exit_price):
+    def _journal_close(self, pos, pnl, result, exit_price, as_of: datetime):
         self.journal.add(JournalEntry(
-            ts=datetime.now(timezone.utc).isoformat(),
+            ts=as_of.isoformat(),
             asset=pos.asset, mode=self.config.mode.value, direction=pos.direction.value,
             decision="closed", reason="стоп/тейк", rules_fired=pos.rules_fired,
             supporting=pos.supporting, entry=pos.entry, stop_loss=pos.stop_loss,
@@ -278,9 +282,9 @@ class Session:
         for asset in self.providers:
             series = self._series[asset]
             idx = min(self._cursor, len(series) - 1)
-            last = series[idx].close
-            for pos, pnl, result in self.broker.update(asset, last):
-                self._journal_close(pos, pnl, result, last)
+            candle = series[idx]
+            for pos, pnl, result in self.broker.update(asset, candle.close):
+                self._journal_close(pos, pnl, result, candle.close, candle.ts)
         self.last_action = "Усі позиції закрито."
 
     def stop_and_review(self) -> str:

@@ -325,6 +325,12 @@ const RISK_LEVELS = {
     note:"Демо — м'якші правила лише для показу угод на синтетичних даних. Не для реальних грошей."},
 };
 const riskLabel = (level) => (RISK_LEVELS[level]||{}).label || level || "—";
+const capitalTagline = (d) => {
+  if(!d || d.balance==null || d.starting==null) return "Навчання торгівлі з контролем ризику";
+  if(d.pnl>0) return "Капітал зростає · контроль ризику";
+  if(d.pnl<0) return "Капітал у просадці · контроль ризику";
+  return "Капітал без змін · контроль ризику";
+};
 const HISTORICAL_YEARS = [2021,2022,2023,2024,2025];
 const sourceLabel = (source) => source==="trainer_synthetic"
   ? "🎓 Кейс тренажера (синтетичні дані)" : "📊 Реальна історія цін";
@@ -721,9 +727,16 @@ function App(){
   const refresh=async()=>{
     const dash=await call("/api/dashboard");
     if(dash&&!dash.error){
-      setD(dash);
-      // якщо сервер уже має активну сесію (напр. після перезавантаження сторінки)
-      if(dash.running && view==="setup") setView("live");
+      if(view==="setup" && !dash.running){
+        // на екрані налаштувань, поки немає активної сесії, ігноруємо дані
+        // ПОПЕРЕДНЬОЇ (вже завершеної) сесії — інакше бейдж режиму/року і
+        // напис про капітал "застрягають" на старому циклі, поки користувач
+        // ще тільки обирає рік/режим для наступного
+      } else {
+        setD(dash);
+        // якщо сервер уже має активну сесію (напр. після перезавантаження сторінки)
+        if(dash.running && view==="setup") setView("live");
+      }
     }
     const j=await call("/api/journal?limit=20");
     if(j&&j.entries) setJournal(j.entries);
@@ -759,12 +772,12 @@ function App(){
 
   return (<div className="wrap">
     <header className="top">
-      <div className="brand">Помічник трейдера<small>Поступовий ріст капіталу · контроль ризику</small></div>
+      <div className="brand">Помічник трейдера<small>{capitalTagline(d)}</small></div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
-        {d&&d.is_demo && <div className="status-pill badge-demo">🎓 Тренажер</div>}
+        {d&&d.running&&d.is_demo && <div className="status-pill badge-demo">🎓 Тренажер</div>}
         {d&&d.running && !d.is_demo && <div className="status-pill badge-risk">🛡️ {riskLabel(d.risk_level)}</div>}
-        {d&&d.market_mode==="live_realtime" && <div className="status-pill badge-live">🌐 Реальний час</div>}
-        {d&&d.market_mode==="historical" && <div className="status-pill badge-live">📜 Історія {d.historical_year||""}</div>}
+        {d&&d.running&&d.market_mode==="live_realtime" && <div className="status-pill badge-live">🌐 Реальний час</div>}
+        {d&&d.running&&d.market_mode==="historical" && <div className="status-pill badge-live">📜 Історія {d.historical_year||""}</div>}
         <div className={"status-pill "+status[0]}>{status[1]}</div>
       </div>
     </header>
