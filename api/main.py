@@ -12,6 +12,8 @@ from __future__ import annotations
 
 import json
 import re
+import threading
+import time
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
@@ -209,41 +211,83 @@ def progress():
     return {**summary.to_dict(), "history": history}
 
 
-# набір активів і параметрів синтетичних даних, узгоджений із core/session.py,
-# щоб «просте» демо-подання ситуації виглядало так само, як і сама стратегія
-_SITUATION_SEEDS = {
-    "BTC/USDT": (1, 60000, 0.0015),
-    "ETH/USDT": (7, 3000, 0.0012),
-    "SOL/USDT": (3, 150, 0.001),
-}
+# --------------------------------------------------------------------------- #
+#  Реальні свічки для екранів "Що бачить" / "Що радить" (§B1/§B2)
+# --------------------------------------------------------------------------- #
+# Раніше тут був набір synthetic-seeds — саме це й спричиняло розбіжність між
+# екранами: обидва просили різну кількість свічок (200 і 400) з ОДНОГО
+# детермінованого блукання SyntheticProvider, потрапляючи в різні точки
+# одного ряду і показуючи різну "поточну ціну" в один момент часу. Тепер
+# обидва екрани читають реальні свічки Binance — для одного активу вони
+# завжди закінчуються на одній і тій самій останній закритій свічці,
+# незалежно від limit, і чесно показують падіння чи бокове рухання ринку.
+_SITUATION_CANDLES = 200
+_ADVICE_CANDLES = 400
+_CANDLE_CACHE_TTL_SEC = 20.0   # коротке кешування: обидва екрани бачать
+                                # однакові дані, коли їх відкривають майже
+                                # одночасно; і менше зайвих запитів до Binance
+_candle_cache: dict[str, tuple[float, list]] = {}   # asset -> (fetched_at, candles)
+_candle_cache_lock = threading.Lock()
+_live_provider = None            # ліниво створюваний CcxtProvider, спільний для всіх активів
+_live_provider_lock = threading.Lock()
+
+
+def _get_live_provider():
+    """Один спільний CcxtProvider на процес — щоб не губити внутрішній
+    rate-limit ccxt, який тримає стан на рівні інстансу біржі."""
+    global _live_provider
+    with _live_provider_lock:
+        if _live_provider is None:
+            from core.data.providers import CcxtProvider
+            _live_provider = CcxtProvider("binance")
+        return _live_provider
+
+
+def _live_candles(asset: str, limit: int):
+    """Реальні 1h-свічки з Binance. Кидає виняток, якщо мережа/біржа
+    недоступні — обробляється у /api/situation і /api/advice."""
+    now = time.monotonic()
+    with _candle_cache_lock:
+        cached = _candle_cache.get(asset)
+        if cached is not None and now - cached[0] < _CANDLE_CACHE_TTL_SEC:
+            return cached[1][-limit:]
+    # мережевий запит навмисно поза локом — не серіалізуємо запити для різних
+    # активів одне за одним, поки триває I/O
+    fetch_n = max(limit, _ADVICE_CANDLES)
+    candles = _get_live_provider().fetch_ohlcv(asset, "1h", limit=fetch_n)
+    with _candle_cache_lock:
+        _candle_cache[asset] = (now, candles)
+    return candles[-limit:]
 
 
 @app.get("/api/situation")
 def situation(asset: str = "BTC/USDT"):
-    """Екран №1 (§B1) «Що система бачить»: проста мова, без жаргону."""
-    from core.data.providers import SyntheticProvider
+    """Екран №1 (§B1) «Що система бачить»: проста мова, без жаргону.
+    Реальні дані Binance — ті самі, що й на екрані «Порада» (§B2)."""
     from core.engines.plain_language import describe_situation_uk
     from core.engines.technical import TechnicalAnalysis
 
-    seed, price, drift = _SITUATION_SEEDS.get(
-        asset, (abs(hash(asset)) % 1000, 100, 0.001))
-    candles = SyntheticProvider(
-        seed=seed, start_price=price, drift=drift, vol=0.015).fetch_ohlcv(asset, "1h", 200)
-    factors, snapshot = TechnicalAnalysis().analyze(asset, candles)
-    return describe_situation_uk(factors, snapshot).to_dict()
+    try:
+        candles = _live_candles(asset, _SITUATION_CANDLES)
+        factors, snapshot = TechnicalAnalysis().analyze(asset, candles)
+        return describe_situation_uk(factors, snapshot).to_dict()
+    except Exception:
+        return {"error": True,
+                "message": "Не вдалося отримати дані з біржі. Спробуйте ще раз за хвилину."}
 
 
 @app.get("/api/advice")
 def advice(asset: str = "BTC/USDT"):
-    """Екран №2 (§B2) «Що радить і чому»: ймовірність + фактори за/проти. Не порада купувати."""
-    from core.data.providers import SyntheticProvider
+    """Екран №2 (§B2) «Що радить і чому»: ймовірність + фактори за/проти. Не
+    порада купувати. Ті самі реальні свічки Binance, що й /api/situation."""
     from core.engines.advice import AdviceEngine
 
-    seed, price, drift = _SITUATION_SEEDS.get(
-        asset, (abs(hash(asset)) % 1000, 100, 0.001))
-    candles = SyntheticProvider(
-        seed=seed, start_price=price, drift=drift, vol=0.015).fetch_ohlcv(asset, "1h", 400)
-    return AdviceEngine().explain(asset, candles).to_dict()
+    try:
+        candles = _live_candles(asset, _ADVICE_CANDLES)
+        return AdviceEngine().explain(asset, candles).to_dict()
+    except Exception:
+        return {"error": True,
+                "message": "Не вдалося отримати дані з біржі. Спробуйте ще раз за хвилину."}
 
 
 # --------------------------------------------------------------------------- #

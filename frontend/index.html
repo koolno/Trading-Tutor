@@ -164,12 +164,16 @@ function SimpleScreen1({onBack,onNext}){
   const [asset,setAsset]=useState(SIMPLE_ASSETS[0]);
   const [s,setS]=useState(null);
   const [loading,setLoading]=useState(true);
+  const [err,setErr]=useState("");
 
   useEffect(()=>{
     let cancelled=false;
-    setLoading(true);
+    setLoading(true); setErr("");
     call("/api/situation?asset="+encodeURIComponent(asset)).then(r=>{
-      if(!cancelled && r && !r.error){ setS(r); setLoading(false); }
+      if(cancelled) return;
+      if(r && !r.error){ setS(r); }
+      else { setErr((r&&r.message)||"Не вдалося отримати дані з біржі. Спробуйте пізніше."); }
+      setLoading(false);
     });
     return ()=>{cancelled=true};
   },[asset]);
@@ -182,7 +186,8 @@ function SimpleScreen1({onBack,onNext}){
         <button key={a} className={a===asset?"on":""} onClick={()=>setAsset(a)}>{a.replace("/USDT","")}</button>)}
     </div>
     <div className="card">
-      {loading||!s ? <div className="empty">Дивимось на ринок…</div> : (<>
+      {err ? <div className="empty" style={{color:"var(--red)"}}>{err}</div> :
+       loading||!s ? <div className="empty">Дивимось на ринок…</div> : (<>
         <div className="plain-price mono">Поточна ціна: ${f2(s.price)}</div>
         <p className="plain-headline">{s.headline}</p>
         <ul className="plain-details">
@@ -205,12 +210,16 @@ function SimpleScreen2({initialAsset,onBack,onNext}){
   const [a,setA]=useState(null);
   const [loading,setLoading]=useState(true);
   const [details,setDetails]=useState(false);
+  const [err,setErr]=useState("");
 
   useEffect(()=>{
     let cancelled=false;
-    setLoading(true);
+    setLoading(true); setErr("");
     call("/api/advice?asset="+encodeURIComponent(asset)).then(r=>{
-      if(!cancelled && r && !r.error){ setA(r); setLoading(false); }
+      if(cancelled) return;
+      if(r && !r.error){ setA(r); }
+      else { setErr((r&&r.message)||"Не вдалося отримати дані з біржі. Спробуйте пізніше."); }
+      setLoading(false);
     });
     return ()=>{cancelled=true};
   },[asset]);
@@ -225,7 +234,8 @@ function SimpleScreen2({initialAsset,onBack,onNext}){
         <button key={x} className={x===asset?"on":""} onClick={()=>setAsset(x)}>{x.replace("/USDT","")}</button>)}
     </div>
     <div className="card">
-      {loading||!a ? <div className="empty">Дивимось в історію…</div> : (<>
+      {err ? <div className="empty" style={{color:"var(--red)"}}>{err}</div> :
+       loading||!a ? <div className="empty">Дивимось в історію…</div> : (<>
         <div className="plain-price mono">Поточна ціна: ${f2(a.price)}</div>
 
         {p ? (<>
