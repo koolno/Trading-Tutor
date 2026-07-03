@@ -116,9 +116,15 @@ class TechnicalAnalysis:
         else:
             regime = MarketRegime.RANGING
 
-        # оцінка ліквідності за обсягом (груба нормалізація)
+        # оцінка ліквідності за обсягом У ГРОШАХ (ціна × обсяг), а не в сирих
+        # одиницях активу — інакше дешевий актив із великою кількістю "штук"
+        # виглядає ліквіднішим за дорогий. Приклад: BTC на реальних 1хв-
+        # свічках Binance має лише ~18 BTC обсягу, але в доларах це ~$1.1М —
+        # дуже ліквідно (сира формула на одиницях активу давала ~0.15).
         avg_vol = sum(c.volume for c in candles[-30:]) / min(30, len(candles))
-        liquidity = max(0.0, min(1.0, avg_vol / (avg_vol + 100)))
+        quote_vol = avg_vol * last
+        LIQUIDITY_HALF_USD = 20_000  # обсяг у $ за свічку, за якого score = 0.5
+        liquidity = max(0.0, min(1.0, quote_vol / (quote_vol + LIQUIDITY_HALF_USD)))
 
         # спред як частка ATR (за відсутності order book)
         spread_pct = min(0.5, atr_p / 50)

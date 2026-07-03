@@ -62,6 +62,7 @@
   .empty{color:var(--muted);font-size:13px;text-align:center;padding:24px}
   .chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:6px}
   .chip{font-size:11px;color:var(--muted);background:var(--panel2);padding:3px 8px;border-radius:6px}
+  .hint{border-bottom:1px dotted var(--muted);cursor:help}
   .setup{display:grid;gap:14px;max-width:420px}
   .field label{display:block;font-size:13px;color:var(--muted);margin-bottom:6px}
   .field input,.field select{width:100%;padding:10px;border-radius:8px;background:var(--bg);
@@ -298,6 +299,10 @@ function SimpleScreen3({initialAsset,onBack,onTry,onSkip}){
 }
 
 const fDate = (iso) => iso ? iso.slice(0,10) : "—";
+const fTime = (iso) => iso ? new Date(iso).toLocaleTimeString("uk-UA",
+  {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "—";
+const LIQUIDITY_TOOLTIP = "нижче 0.4 — угода відхиляється";
+const isLiquidityReason = (reason) => !!reason && reason.includes("ліквідн");
 const sourceLabel = (source) => source==="trainer_synthetic"
   ? "🎓 Кейс тренажера (синтетичні дані)" : "📊 Реальна історія цін";
 
@@ -644,12 +649,16 @@ function Dashboard({d,journal,onCmd,report,understanding,onNew}){
     <div className="card">
       <h3>Журнал рішень</h3>
       {journal&&journal.length?
-        <table><thead><tr><th>Актив</th><th>Дія</th><th>Причина</th><th>P/L</th></tr></thead>
+        <table><thead><tr><th>Час</th><th>Актив</th><th>Дія</th><th>Причина</th><th>P/L</th></tr></thead>
         <tbody>{journal.map((e,i)=><tr key={i}>
+          <td className="mono" style={{color:"var(--muted)"}}>{fTime(e.ts)}</td>
           <td>{e.asset}</td>
           <td><span className={"tag "+(e.result==="win"?"win":e.result==="loss"?"loss":e.decision==="rejected"?"reject":"")}>
             {e.decision==="opened"?"Відкрито":e.decision==="closed"?(e.result==="win"?"Прибуток":"Збиток"):"Відмова"}</span></td>
-          <td style={{maxWidth:340,color:"var(--muted)"}}>{e.reason}{e.supporting&&e.supporting.length?
+          <td style={{maxWidth:340,color:"var(--muted)"}}>
+            {isLiquidityReason(e.reason)?
+              <span className="hint" title={LIQUIDITY_TOOLTIP}>{e.reason}</span>:e.reason}
+            {e.supporting&&e.supporting.length?
             <div className="chips">{e.supporting.slice(0,3).map((c,j)=><span key={j} className="chip">{c}</span>)}</div>:null}</td>
           <td className={"mono "+(e.pnl>0?"pos":e.pnl<0?"neg":"")}>{e.pnl!=null?(e.pnl>0?"+":"")+f2(e.pnl):"—"}</td>
         </tr>)}</tbody></table>
