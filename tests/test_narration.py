@@ -1,5 +1,5 @@
 """Тест пояснень кроків простою мовою (PLAN C2): «система почекала, бо…» тощо."""
-from core.engines.journal import JournalEntry
+from core.engines.journal import TRIGGERED_EXIT_REASON, JournalEntry
 from core.engines.narration import (
     narrate_emergency_stop_uk,
     narrate_entry_uk,
@@ -10,6 +10,8 @@ from core.session import Session, SessionConfig
 
 def _entry(**kw):
     base = dict(ts="t", asset="BTC/USDT", mode="paper", direction="long", reason="r")
+    if kw.get("decision") == "closed":
+        base["reason"] = TRIGGERED_EXIT_REASON  # справжнє спрацювання стопу/тейку
     base.update(kw)
     return JournalEntry(**base)
 
@@ -59,6 +61,17 @@ def test_narrate_entry_closed_loss_mentions_stop_loss_protection():
 def test_narrate_entry_closed_breakeven():
     text = narrate_entry_uk(_entry(decision="closed", result="breakeven"))
     assert "без прибутку і без збитку" in text
+
+
+def test_narrate_entry_forced_close_does_not_claim_stop_or_target():
+    """Примусове закриття (кінець циклу, DCA, "Закрити всі угоди") не має
+    приписувати результат стопу/тейку, які тут ні до чого (§ critical review)."""
+    win = narrate_entry_uk(_entry(decision="closed", result="win", reason="Закрито примусово"))
+    loss = narrate_entry_uk(_entry(decision="closed", result="loss", reason="Закрито примусово"))
+    assert "примусово" in win
+    assert "тейк" not in win and "ціль" not in win
+    assert "примусово" in loss
+    assert "стоп-лос" not in loss and "захист" not in loss
 
 
 def test_narrate_emergency_stop():

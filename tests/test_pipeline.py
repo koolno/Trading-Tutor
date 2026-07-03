@@ -121,6 +121,67 @@ def test_loss_streak_cooldown_recovers_instead_of_blocking_forever():
     assert not broker.account_state().in_cooldown  # минув сам собою — торгівля відновлена
 
 
+def test_drawdown_emergency_stop_recovers_instead_of_blocking_forever():
+    """Раніше emergency stop (просадка ≥ ліміту) блокував угоди НАЗАВЖДИ:
+    peak_equity ніколи не зменшується, а нові (можливо прибуткові) угоди
+    якраз заблоковані — просадка не могла сама впасти нижче ліміту. Реальний
+    прогін на 2023 показав: перше спрацювання на тіку 117 з 8700, і після
+    цього блок тримався 8582 з 8699 тіків (98.7% циклу). Тепер це тимчасова
+    пауза (drawdown_pause_ticks) з рестартом відліку (peak_equity скидається)."""
+    risk = RiskEngine(RiskConfig(max_drawdown_pct=5.0, drawdown_pause_ticks=2,
+                                 max_drawdown_pauses=10))
+    broker = PaperBroker(starting_equity=500, commission_pct=0, slippage_pct=0)
+    journal = Journal()
+    signal = SignalEngine(build_seed_constitution(), min_confirmations=2)
+    engine = PaperTradingEngine(signal, risk, broker, journal)
+
+    broker.equity = 470.0  # штучна просадка 6% > ліміту 5%
+    market = MarketSnapshot(asset="X/Y", price=100, liquidity_score=1.0)
+    tech = TechnicalFactors()
+
+    msg1 = engine.step(market, tech, update_positions=False)
+    assert msg1.startswith("⛔ Emergency stop")
+    assert broker.peak_equity == 470.0  # скинуто до поточного рівня — чесний новий відлік
+
+    msg2 = engine.step(market, tech, update_positions=False)
+    assert msg2.startswith("⛔ Пауза через просадку")
+
+    msg3 = engine.step(market, tech, update_positions=False)
+    assert not msg3.startswith("⛔")  # пауза минула сама собою — торгівля відновлена
+
+
+def test_repeated_drawdown_pauses_escalate_to_honest_hard_stop():
+    """Якщо стратегія знову й знову впирається в ліміт просадки за один
+    цикл — це явно не працює, і чесний ризик-менеджмент означає зупинитись,
+    а не мовчки повторювати паузу без кінця (компенсація за попередній фікс:
+    без ліміту повторів реальний прогін 2023 давав -57% замість колишніх
+    (хибно "захищених") -8%)."""
+    risk = RiskEngine(RiskConfig(max_drawdown_pct=5.0, drawdown_pause_ticks=1,
+                                 max_drawdown_pauses=2))
+    broker = PaperBroker(starting_equity=500, commission_pct=0, slippage_pct=0)
+    journal = Journal()
+    signal = SignalEngine(build_seed_constitution(), min_confirmations=2)
+    engine = PaperTradingEngine(signal, risk, broker, journal)
+
+    market = MarketSnapshot(asset="X/Y", price=100, liquidity_score=1.0)
+    tech = TechnicalFactors()
+
+    for _ in range(2):  # 2 паузи дозволені (max_drawdown_pauses=2)
+        broker.equity = broker.peak_equity * 0.90
+        msg = engine.step(market, tech, update_positions=False)
+        assert msg.startswith("⛔ Emergency stop")
+        engine.step(market, tech, update_positions=False)  # пауза (1 тік) минає
+        assert not broker.hard_stopped
+
+    broker.equity = broker.peak_equity * 0.90  # третій раз поспіль — ліміт вичерпано
+    msg = engine.step(market, tech, update_positions=False)
+    assert msg.startswith("🛑")
+    assert broker.hard_stopped
+
+    msg2 = engine.step(market, tech, update_positions=False)
+    assert msg2.startswith("🛑")  # і надалі — той самий чесний стоп, не нова спроба
+
+
 # --- Learning / stats -------------------------------------------------- #
 def test_compute_stats_winrate():
     entries = [

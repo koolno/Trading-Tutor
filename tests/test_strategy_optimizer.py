@@ -14,7 +14,8 @@ def test_aggregate_daily_compresses_hourly_candles():
     assert 9 <= len(daily) <= 11  # 240 годин ~ 10 днів; межові дні залежать від "зараз"
     assert daily[0].open == hourly[0].open
     assert daily[-1].close == hourly[-1].close
-    assert daily[0].high == max(c.high for c in hourly[:24])
+    first_day_candles = [c for c in hourly if c.ts.date() == hourly[0].ts.date()]
+    assert daily[0].high == max(c.high for c in first_day_candles)
 
 
 def test_grid_search_returns_valid_params(monkeypatch):

@@ -1,5 +1,5 @@
 """Тест «розуміння, а не очки» (PLAN C3): прості підсумки без балів і рівнів."""
-from core.engines.journal import JournalEntry
+from core.engines.journal import TRIGGERED_EXIT_REASON, JournalEntry
 from core.engines.understanding import build_understanding_summary
 from core.session import Session, SessionConfig
 
@@ -8,6 +8,8 @@ BAN_WORDS = ["бал", "бали", "очк", "рівень", "рівн", "score"
 
 def _entry(**kw):
     base = dict(ts="t", asset="BTC/USDT", mode="paper", direction="long", reason="r")
+    if kw.get("decision") == "closed":
+        base["reason"] = TRIGGERED_EXIT_REASON  # справжнє спрацювання стопу/тейку
     base.update(kw)
     return JournalEntry(**base)
 
@@ -46,6 +48,28 @@ def test_wins_and_rejections_produce_separate_insights():
     assert "прибуток" in text
     assert "пропустила 4" in " ".join(s.insights_uk)
     assert "підтвердж" in text
+
+
+def test_forced_closes_get_own_honest_insight_not_stop_loss_credit():
+    """DCA-позиції (та інші примусові закриття) не мають приписуватись
+    стоп-лосу/тейку — окремий, чесний підсумок (§ critical review)."""
+    entries = (
+        [_entry(decision="closed", result="loss", reason="Закрито примусово")]
+        + [_entry(decision="closed", result="win", reason="Закрито примусово")]
+    )
+    s = build_understanding_summary(entries)
+    text = " ".join(s.insights_uk)
+    assert "стоп-лос" not in text.lower()
+    assert "примусово" in text
+    assert "1" in text  # 1 у плюсі, 1 у мінусі
+
+
+def test_dca_opens_get_own_insight_not_confirmations_claim():
+    entries = [_entry(decision="opened", reason="Плановий внесок DCA №1 з 5") for _ in range(3)]
+    s = build_understanding_summary(entries)
+    text = " ".join(s.insights_uk)
+    assert "підтвердж" not in text.lower()
+    assert "усередненн" in text.lower()
 
 
 def test_no_gamification_language_anywhere():

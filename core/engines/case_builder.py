@@ -21,7 +21,7 @@ from pathlib import Path
 
 from core.data.providers import Candle
 from core.data.quality import DataQualityEngine
-from core.engines.journal import Journal, JournalEntry
+from core.engines.journal import TRIGGERED_EXIT_REASON, Journal, JournalEntry
 from core.engines.paper_trading import PaperBroker, PaperTradingEngine
 from core.engines.risk_engine import RiskEngine
 from core.engines.signal_engine import SignalEngine
@@ -202,9 +202,12 @@ def case_from_journal(
     сама ділиться своїм кейсом). На відміну від CaseBuilder.build(), нічого
     не проганяє наново — просто чесно конвертує вже записаний журнал.
 
-    ВАЖЛИВО: source за замовчуванням "trainer_synthetic", бо сесії
-    тренажера/paper зараз працюють на синтетичних даних (SyntheticProvider),
-    а не на реальній історії — приховувати це було б нечесно (§3).
+    ВАЖЛИВО: source за замовчуванням "trainer_synthetic" (для fast_sim/демо
+    сесій на SyntheticProvider). Сесії на historical/live_realtime market_mode
+    працюють на РЕАЛЬНИХ даних — виклик має явно передати
+    source="real_history" (див. api/main.py share_case()), інакше кейс на
+    справжніх цінах був би підписаний як "синтетичний" — так само нечесно,
+    як і зворотне (§3).
     """
     closed = [e for e in entries if e.decision == "closed"]
     if not closed:
@@ -217,7 +220,10 @@ def case_from_journal(
             entry=e.entry or 0.0, stop_loss=e.stop_loss or 0.0,
             take_profit=e.take_profit or 0.0, exit=e.exit or 0.0,
             pnl_usd=e.pnl_usd or 0.0, result=e.result or "breakeven",
-            protected_from_loss=(e.result == "loss"),
+            # лише СПРАВЖНІ спрацювання стопу — форс-закриття (кінець
+            # циклу, DCA) теж можуть дати збиток, але це не заслуга
+            # стоп-лосу (§ critical review)
+            protected_from_loss=(e.result == "loss" and e.reason == TRIGGERED_EXIT_REASON),
             supporting=e.supporting or [],
         )
         for e in closed

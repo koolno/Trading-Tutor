@@ -12,6 +12,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Optional
 
+# Розрізняє "позицію закрито тому, що спрацював стоп/тейк" від "позицію
+# закрито примусово" (кінець циклу / ручне "Закрити всі угоди") — потрібно,
+# щоб чесно рахувати, скільки разів стоп-лос СПРАВДІ захистив від збитку
+# (§build_stop_report, §understanding.py), а не приписувати цю заслугу і
+# forced-close (наприклад, DCA-позиціям, у яких стопу/тейку взагалі немає).
+TRIGGERED_EXIT_REASON = "стоп/тейк"
+FORCED_EXIT_REASON = "Закрито примусово (кінець циклу або ручне закриття) — стоп/тейк не спрацьовував"
+
 
 @dataclass
 class JournalEntry:
@@ -53,12 +61,13 @@ class Journal:
             decision="rejected", reason=reason, rules_fired=rules or [],
         ))
 
-    def add_close(self, pos, pnl, result, exit_price, mode="paper", ts: datetime | None = None):
+    def add_close(self, pos, pnl, result, exit_price, mode="paper", ts: datetime | None = None,
+                  reason: str = TRIGGERED_EXIT_REASON):
         """Єдиний спосіб журналювати закриття позиції (використовують і сесія, і бектест)."""
         self.add(JournalEntry(
             ts=(ts or datetime.now(timezone.utc)).isoformat(),
             asset=pos.asset, mode=mode, direction=pos.direction.value,
-            decision="closed", reason="стоп/тейк", rules_fired=pos.rules_fired,
+            decision="closed", reason=reason, rules_fired=pos.rules_fired,
             supporting=pos.supporting, entry=pos.entry, stop_loss=pos.stop_loss,
             take_profit=pos.take_profit, exit=exit_price, position_size=pos.size,
             pnl_usd=pnl, result=result,

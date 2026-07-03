@@ -15,7 +15,7 @@ from datetime import datetime, timezone
 
 from core.data.providers import MarketDataProvider, SyntheticProvider
 from core.data.quality import DataQualityEngine
-from core.engines.journal import Journal, JournalEntry
+from core.engines.journal import FORCED_EXIT_REASON, TRIGGERED_EXIT_REASON, Journal, JournalEntry
 from core.engines.learning import build_stop_report, compute_stats
 from core.engines.paper_trading import PaperBroker, PaperTradingEngine
 from core.engines.risk_engine import RiskConfig, RiskEngine
@@ -28,6 +28,15 @@ from core.engines.narration import narrate_emergency_stop_uk, narrate_entry_uk, 
 from core.engines.understanding import build_understanding_summary
 from core.knowledge.constitution import build_seed_constitution
 from core.models.types import Mode
+
+# TechnicalAnalysis рахує EMA/MACD/RSI/ATR за O(розмір вікна) на кожен тік;
+# без обмеження вікно росло б необмежено (series[:cursor+1]), і повний рік
+# 1h-свічок (§ historical mode) означав би O(n^2) — цикл, який мав би йти
+# "прискорено, хвилини", насправді тягнувся б довше реального часу. 300
+# свічок — з великим запасом більше за найдовший індикатор (EMA(50)), тож
+# останнє значення не змінюється, лише перестає повторно перераховувати
+# всю історію з нуля щотік.
+_TA_WINDOW_CANDLES = 300
 
 
 @dataclass
@@ -206,7 +215,7 @@ class Session:
             series = self._series[asset]
             if self._cursor >= len(series):
                 continue
-            window = series[: self._cursor + 1]
+            window = series[max(0, self._cursor + 1 - _TA_WINDOW_CANDLES):self._cursor + 1]
             if len(window) < 60:
                 continue
             if asset not in self._news_cache or self._cursor % 24 == 0:
@@ -217,6 +226,11 @@ class Session:
         if len(self.equity_curve) > self._max_curve:
             self.equity_curve = self.equity_curve[-self._max_curve:]
         self._cursor += 1
+        # забагато повторних просадок цього циклу — чесно зупиняємось, а не
+        # мовчки продовжуємо накопичувати збитки до кінця історії
+        if self.broker.hard_stopped and self.running:
+            self.running = False
+            return
         # коли історія вичерпана — завершуємо цикл і пропонуємо звіт
         if self._cursor >= len(next(iter(self._series.values()))):
             self.running = False
@@ -253,6 +267,9 @@ class Session:
             self.equity_curve.append(round(self.broker.equity, 2))
             if len(self.equity_curve) > self._max_curve:
                 self.equity_curve = self.equity_curve[-self._max_curve:]
+        # забагато повторних просадок цього циклу — чесно зупиняємось (§_tick_fast)
+        if self.broker.hard_stopped:
+            self.running = False
 
     def _process_window(self, asset, window, timeframe: str, check_staleness: bool, news_ctx):
         """Спільна логіка для fast_sim і live_realtime — сама торгова логіка
@@ -283,20 +300,36 @@ class Session:
                 asset, msg.split(":", 1)[-1])
         else:
             step_narration = msg.splitlines()[0]
+        # цикл щойно зупинено чесно (§hard_stopped) — найважливіша подія
+        # цього тіку, показуємо її, навіть якщо в цей самий тік закрилась
+        # ще й позиція (інакше причину зупинки могло б не побачити ніхто)
+        if msg.startswith("🛑"):
+            self.last_action = msg[2:].strip()
+            return
         # подія закриття важливіша за цей тік — показуємо саме її, якщо була
         self.last_action = close_narrations[-1] if close_narrations else step_narration
 
-    def _journal_close(self, pos, pnl, result, exit_price, as_of: datetime):
+    def _journal_close(self, pos, pnl, result, exit_price, as_of: datetime,
+                       reason: str = TRIGGERED_EXIT_REASON):
         self.journal.add(JournalEntry(
             ts=as_of.isoformat(),
             asset=pos.asset, mode=self.config.mode.value, direction=pos.direction.value,
-            decision="closed", reason="стоп/тейк", rules_fired=pos.rules_fired,
+            decision="closed", reason=reason, rules_fired=pos.rules_fired,
             supporting=pos.supporting, entry=pos.entry, stop_loss=pos.stop_loss,
             take_profit=pos.take_profit, exit=exit_price, position_size=pos.size,
             pnl_usd=pnl, result=result,
-            lesson="перемога — сетап спрацював" if result == "win"
-                   else "збиток — переглянути фактори входу",
+            lesson=self._closing_lesson(result, reason),
         ))
+
+    @staticmethod
+    def _closing_lesson(result: str, reason: str) -> str:
+        if reason != TRIGGERED_EXIT_REASON:
+            # примусове закриття — стоп/тейк тут ні до чого, не приписуємо
+            # результат "сетапу", який нічого не вирішував
+            return ("прибуток на момент примусового закриття" if result == "win"
+                    else "збиток на момент примусового закриття")
+        return ("перемога — сетап спрацював" if result == "win"
+                else "збиток — переглянути фактори входу")
 
     # --------------------------------------------------------------------- #
     #  Команди керування
@@ -324,7 +357,8 @@ class Session:
             # вийшло б за стопом/тейком (і DCA-позиції інакше не закрились
             # би НІКОЛИ — у них стоп/тейк навмисно ніколи не спрацьовує)
             for pos, pnl, result in self.broker.close_all_positions(asset, candle.close):
-                self._journal_close(pos, pnl, result, candle.close, candle.ts)
+                self._journal_close(pos, pnl, result, candle.close, candle.ts,
+                                    reason=FORCED_EXIT_REASON)
         self.last_action = "Усі позиції закрито."
 
     def stop_and_review(self) -> str:
@@ -347,13 +381,21 @@ class Session:
             stats = compute_stats(self.journal.closed_trades())
             pf = None if stats.profit_factor == float("inf") else stats.profit_factor
             rejected = len([e for e in self.journal.entries if e.decision == "rejected"])
+            # лише СПРАВЖНІ спрацювання стопу — не всі збитки: примусове
+            # закриття (кінець циклу, "Закрити всі угоди", DCA) теж може дати
+            # збиток, але це не заслуга стоп-лосу, і приписувати йому "захист"
+            # було б нечесно (§ critical review)
+            stop_loss_saves = len([
+                e for e in self.journal.entries
+                if e.decision == "closed" and e.result == "loss" and e.reason == TRIGGERED_EXIT_REASON
+            ])
             s = db_session()
             try:
                 s.add(CycleSummary(
                     session_id=self.session_id, starting_equity=self.starting_equity,
                     ending_equity=self.broker.equity, trades=stats.trades,
                     win_rate=stats.win_rate, profit_factor=pf, report_text=report,
-                    stop_loss_saves=stats.losses, rejected=rejected,
+                    stop_loss_saves=stop_loss_saves, rejected=rejected,
                 ))
                 for e in self.journal.entries:
                     s.add(TradeRecord(

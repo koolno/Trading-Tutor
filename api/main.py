@@ -356,9 +356,15 @@ def share_case():
     from core.engines.case_builder import case_from_journal
 
     session = _require_session()
+    # historical/live_realtime — реальні дані Binance; лише fast_sim (демо/
+    # тренажер) — синтетичний генератор. Раніше тут завжди був дефолт
+    # "trainer_synthetic" незалежно від режиму — підписувало кейси на
+    # реальних цінах як "синтетичні", що нечесно (§ critical review)
+    source = "trainer_synthetic" if session.config.market_mode == "fast_sim" else "real_history"
     try:
         case = case_from_journal(
-            session.journal.entries, session.starting_equity, session.broker.equity)
+            session.journal.entries, session.starting_equity, session.broker.equity,
+            source=source)
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
 

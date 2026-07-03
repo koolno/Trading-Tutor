@@ -17,7 +17,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 
-from core.engines.journal import Journal, JournalEntry
+from core.engines.journal import TRIGGERED_EXIT_REASON, Journal, JournalEntry
 from core.engines.risk_engine import RiskEngine
 from core.engines.signal_engine import SignalEngine, TechnicalFactors
 from core.models.types import (
@@ -56,6 +56,9 @@ class PaperBroker:
         self.daily_risk_used_pct = 0.0
         self.weekly_risk_used_pct = 0.0
         self.cooldown_remaining = 0   # тіків/свічок лишилось до кінця cooldown
+        self.drawdown_pause_remaining = 0   # тіків лишилось до кінця паузи через просадку
+        self.drawdown_pause_count = 0        # скільки разів пауза вже спрацювала цього циклу
+        self.hard_stopped = False            # цикл зупинено чесно (забагато повторних просадок)
 
     def account_state(self) -> AccountState:
         return AccountState(
@@ -80,6 +83,31 @@ class PaperBroker:
         інакше лічильник ніколи б не дійшов до нуля."""
         if self.cooldown_remaining > 0:
             self.cooldown_remaining -= 1
+
+    def start_drawdown_pause(self, ticks: int, max_pauses: int) -> None:
+        """Пауза на певну кількість тіків після Emergency Stop (просадка
+        досягла ліміту) — UI чесно називає це "паузою", а не зупинкою
+        назавжди, тож без явного відновлення це була б порожня обіцянка:
+        emergency_stop_triggered() перевіряв би те саме drawdown_pct щотік
+        і блокував би НАЗАВЖДИ (просадка не може сама зменшитись без нових
+        прибуткових угод, а нові угоди якраз заблоковані). Скидаємо
+        peak_equity до поточного рівня — рахунок отримує чесний новий
+        відлік, а не вічний тягар старого піку.
+
+        Але якщо це трапляється знову і знову за один цикл — стратегія
+        явно не працює в цих умовах, і чесний ризик-менеджмент означає
+        зупинитись до кінця циклу, а не мовчки перезапускати паузу
+        безкінечно (це саме та ж помилка дизайну, яку ми щойно виправили,
+        тільки на вищому рівні)."""
+        self.drawdown_pause_remaining = ticks
+        self.peak_equity = self.equity
+        self.drawdown_pause_count += 1
+        if self.drawdown_pause_count > max_pauses:
+            self.hard_stopped = True
+
+    def advance_drawdown_pause(self) -> None:
+        if self.drawdown_pause_remaining > 0:
+            self.drawdown_pause_remaining -= 1
 
     def _apply_slippage(self, price: float, direction: Direction, entering: bool) -> float:
         s = self.slippage_pct / 100
@@ -182,6 +210,11 @@ class PaperTradingEngine:
         self.broker = broker
         self.journal = journal
 
+    def _hard_stop_message(self) -> str:
+        return ("🛑 Стратегію зупинено до кінця циклу: просадка повторилась "
+                f"{self.broker.drawdown_pause_count} рази поспіль — цей підхід "
+                "явно не працює в поточних умовах.")
+
     def step(self, market: MarketSnapshot, tech: TechnicalFactors,
              update_positions: bool = True, news=None,
              as_of: datetime | None = None) -> str:
@@ -192,9 +225,10 @@ class PaperTradingEngine:
         # бо це час останньої отриманої з біржі свічки.
         as_of = as_of or datetime.now(timezone.utc)
 
-        # 0. просунути cooldown-таймер на один тік (незалежно від результату
-        # цього тіку — інакше лічильник ніколи б не дійшов до нуля)
+        # 0. просунути таймери пауз на один тік (незалежно від результату
+        # цього тіку — інакше лічильники ніколи б не дійшли до нуля)
         self.broker.advance_cooldown()
+        self.broker.advance_drawdown_pause()
 
         # 1. оновити відкриті позиції (можна пропустити, якщо викликач робить це сам)
         if update_positions:
@@ -202,7 +236,7 @@ class PaperTradingEngine:
                 self.journal.add(JournalEntry(
                     ts=as_of.isoformat(),
                     asset=pos.asset, mode="paper", direction=pos.direction.value,
-                    decision="closed", reason="стоп/тейк",
+                    decision="closed", reason=TRIGGERED_EXIT_REASON,
                     rules_fired=pos.rules_fired, supporting=pos.supporting,
                     entry=pos.entry, stop_loss=pos.stop_loss, take_profit=pos.take_profit,
                     exit=market.price, position_size=pos.size, pnl_usd=pnl, result=result,
@@ -218,9 +252,27 @@ class PaperTradingEngine:
                 and self.broker.consecutive_losses >= c.loss_streak_cooldown):
             self.broker.start_cooldown(c.cooldown_ticks)
 
-        # 2. emergency stop?
+        # 2. цикл зупинено чесно (забагато повторних просадок цього циклу)?
+        # окремий префікс 🛑 (а не ⛔, як звичайний emergency stop/пауза) —
+        # щоб _process_window міг чітко відрізнити й показати користувачу
+        # САМЕ цю подію, а не заглушити її звичайним закриттям позиції
+        if self.broker.hard_stopped:
+            return self._hard_stop_message()
+
+        # пауза через попередню просадку ще триває?
+        if self.broker.drawdown_pause_remaining > 0:
+            return f"⛔ Пауза через просадку (ще {self.broker.drawdown_pause_remaining} тіків)."
+
+        # emergency stop? — якщо так, старт паузи НА ЧАС (§start_drawdown_pause),
+        # а не назавжди (але з лімітом повторів — §hard_stopped)
         triggered, reason = self.risk.emergency_stop_triggered(self.broker.account_state())
         if triggered:
+            self.broker.start_drawdown_pause(c.drawdown_pause_ticks, c.max_drawdown_pauses)
+            if self.broker.hard_stopped:
+                # це саме той тік, де ліміт повторів вичерпано — сесія
+                # зупиниться відразу після цього, тож мусимо повернути 🛑
+                # ЗАРАЗ, а не на наступному тіку, якого вже не буде
+                return self._hard_stop_message()
             return f"⛔ Emergency stop: {reason}"
 
         # 3. сигнал

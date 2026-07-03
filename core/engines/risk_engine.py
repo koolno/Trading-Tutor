@@ -27,6 +27,9 @@ class RiskConfig(BaseModel):
     max_daily_risk_pct: float = 1.0
     max_weekly_risk_pct: float = 3.0
     max_drawdown_pct: float = 8.0              # пауза при просадці
+    drawdown_pause_ticks: int = 480            # тривалість паузи (у тіках/свічках)
+    max_drawdown_pauses: int = 3               # скільки пауз дозволено за цикл, перш ніж
+                                                # чесно зупинити стратегію до кінця циклу
     min_risk_reward: float = 1.5
     max_open_positions: int = 5
     max_spread_pct: float = 0.5

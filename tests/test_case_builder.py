@@ -3,7 +3,7 @@ import json
 
 from core.data.providers import SyntheticProvider
 from core.engines.case_builder import Case, CaseBuilder, case_from_journal
-from core.engines.journal import JournalEntry
+from core.engines.journal import TRIGGERED_EXIT_REASON, JournalEntry
 from core.engines.risk_engine import RiskEngine
 from core.engines.signal_engine import SignalEngine
 from core.knowledge.constitution import build_seed_constitution
@@ -89,6 +89,8 @@ def test_case_builder_defaults_to_real_history_source():
 def _entry(**kw):
     base = dict(ts="2026-07-02T10:00:00+00:00", asset="BTC/USDT", mode="paper",
                 direction="long", reason="r")
+    if kw.get("decision") == "closed":
+        base["reason"] = TRIGGERED_EXIT_REASON  # справжнє спрацювання стопу/тейку
     base.update(kw)
     return JournalEntry(**base)
 
@@ -121,6 +123,17 @@ def test_case_from_journal_marks_losses_as_protected():
     wins = [t for t in case.trades if t.result == "win"]
     assert all(t.protected_from_loss for t in losses)
     assert all(not t.protected_from_loss for t in wins)
+
+
+def test_case_from_journal_does_not_credit_forced_closes_as_protected():
+    """DCA/forced-close втрати не мають позначатись як "стоп-лос захистив"
+    (§ critical review — раніше будь-який result=="loss" рахувався захистом)."""
+    entries = [
+        _entry(decision="closed", result="loss", pnl_usd=-3.0, reason="Закрито примусово"),
+    ]
+    case = case_from_journal(entries, 500.0, 497.0)
+    assert not case.trades[0].protected_from_loss
+    assert len(case.stop_loss_saves) == 0
 
 
 def test_case_from_journal_raises_without_closed_trades():

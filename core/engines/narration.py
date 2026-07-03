@@ -9,7 +9,7 @@ Trainer Narration (PLAN, етап C2) — пояснення кожного кр
 """
 from __future__ import annotations
 
-from core.engines.journal import JournalEntry
+from core.engines.journal import TRIGGERED_EXIT_REASON, JournalEntry
 
 _WAIT_PREFIXES = "⏳🚫✅⛔ "
 
@@ -50,6 +50,17 @@ def narrate_entry_uk(entry: JournalEntry) -> str:
         tail = reason.lower() if reason else "ризик-контроль не дозволив"
         return f"Система відмовилась від угоди по {entry.asset}, бо {tail}."
     if entry.decision == "closed":
+        if entry.reason != TRIGGERED_EXIT_REASON:
+            # примусове закриття (кінець циклу, ручне "Закрити всі угоди",
+            # DCA) — стоп/тейк тут ні до чого, не приписуємо йому заслугу
+            # чи провину (§ чесність замість "завжди захисту/завжди цілі")
+            if entry.result == "win":
+                return (f"Система закрила угоду по {entry.asset} примусово — "
+                        f"на цей момент вона була в плюсі.")
+            if entry.result == "loss":
+                return (f"Система закрила угоду по {entry.asset} примусово — "
+                        f"на цей момент вона була в мінусі.")
+            return f"Система закрила угоду по {entry.asset} примусово, без зміни."
         if entry.result == "win":
             return (f"Система вийшла з прибутком по {entry.asset} — "
                      f"ціна дійшла до цілі (тейк-профіт).")
