@@ -312,6 +312,12 @@ function SimpleScreen3({initialAsset,onBack,onTry,onSkip}){
 const fDate = (iso) => iso ? iso.slice(0,10) : "—";
 const fTime = (iso) => iso ? new Date(iso).toLocaleTimeString("uk-UA",
   {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "—";
+const fDateTime = (iso) => iso ? new Date(iso).toLocaleString("uk-UA",
+  {day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "—";
+// у fast_sim/historical час запису — це симульований момент з минулого,
+// тому показуємо повну дату; у live_realtime це й так фактично "зараз" —
+// досить лише часу
+const journalTsFormat = (marketMode) => marketMode==="live_realtime" ? fTime : fDateTime;
 const LIQUIDITY_TOOLTIP = "нижче 0.4 — угода відхиляється";
 const isLiquidityReason = (reason) => !!reason && reason.includes("ліквідн");
 
@@ -685,9 +691,9 @@ function Dashboard({d,journal,onCmd,report,understanding,onNew}){
     <div className="card">
       <h3>Журнал рішень</h3>
       {journal&&journal.length?
-        <table><thead><tr><th>Час</th><th>Актив</th><th>Дія</th><th>Причина</th><th>P/L</th></tr></thead>
+        <table><thead><tr><th>{d.market_mode==="live_realtime"?"Час":"Дата й час"}</th><th>Актив</th><th>Дія</th><th>Причина</th><th>P/L</th></tr></thead>
         <tbody>{journal.map((e,i)=><tr key={i}>
-          <td className="mono" style={{color:"var(--muted)"}}>{fTime(e.ts)}</td>
+          <td className="mono" style={{color:"var(--muted)",whiteSpace:"nowrap"}}>{journalTsFormat(d.market_mode)(e.ts)}</td>
           <td>{e.asset}</td>
           <td><span className={"tag "+(e.result==="win"?"win":e.result==="loss"?"loss":e.decision==="rejected"?"reject":"")}>
             {e.decision==="opened"?"Відкрито":e.decision==="closed"?(e.result==="win"?"Прибуток":"Збиток"):"Відмова"}</span></td>
