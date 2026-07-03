@@ -10,7 +10,7 @@ Session Manager — стан запущеної стратегії (Start/Stop f
 from __future__ import annotations
 
 import threading
-from dataclasses import dataclass, field
+from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 
 from core.data.providers import MarketDataProvider, SyntheticProvider
@@ -49,6 +49,14 @@ class SessionConfig:
     market_mode: str = "fast_sim"
     historical_year: int | None = None    # рік для market_mode="historical"
     live_interval_sec: int = 60           # як часто тягнути нову ціну в live_realtime
+    # "classic" — типові правила з підручника (тренд, RSI, MACD), пороги
+    #   фіксовані, не підганяються під жодні дані;
+    # "optimized" — параметри ПІДІБРАНІ під історію 2021-2025, щоб
+    #   максимізувати минулий прибуток (§ навмисна демонстрація overfitting,
+    #   чесно позначена попередженням в UI);
+    # "dca" — без вибору моменту входу: фіксований план регулярних внесків
+    #   (усереднення), без Signal/Risk Engine.
+    strategy: str = "classic"
 
     def to_risk_config(self) -> RiskConfig:
         if self.risk_level == "demo":
@@ -86,7 +94,7 @@ class Session:
             dry_run=not (config.live_enabled and config.live_confirmed),
         )
         self._news_cache: dict = {}
-        self.engine = PaperTradingEngine(self.signal, self.risk, self.broker, self.journal)
+        self.optimized_params = None   # заповнюється нижче лише для strategy="optimized"
         self.ta = TechnicalAnalysis()
         self.dq = DataQualityEngine()
         self.starting_equity = config.amount_usd
@@ -132,6 +140,34 @@ class Session:
                 self.providers[a] = p
                 # 1000 свічок наперед — вистачає на тривалий безперервний цикл
                 self._series[a] = p.fetch_ohlcv(a, "1h", limit=1000)
+
+        # --- Стратегія: яка логіка ухвалення рішень водить цю сесію -------- #
+        # Будується ПІСЛЯ підготовки даних вище, бо "dca" рахує план внесків
+        # від довжини серії (total_ticks).
+        if config.strategy == "optimized":
+            # "Оптимізована по історії" — параметри ПІДІБРАНІ під 2021-2025,
+            # щоб максимізувати минулий прибуток, а не пороги з підручника.
+            # Саме тому вона, найімовірніше, програє наперед (§ overfitting,
+            # чесно позначено попередженням в UI, api/main.py STRATEGIES).
+            from core.engines.strategy_optimizer import fit_optimized_params
+            self.optimized_params = fit_optimized_params()
+            self.signal = self.optimized_params.to_signal_engine()
+            self.engine = PaperTradingEngine(self.signal, self.risk, self.broker, self.journal)
+        elif config.strategy == "dca":
+            # "Надійна (усереднення)" — без вибору моменту входу: фіксований
+            # план регулярних внесків, без Signal/Risk Engine.
+            from core.engines.dca_engine import DCAEngine
+            if config.market_mode == "live_realtime":
+                engine_kwargs = {"interval_ticks": 24}
+            else:
+                first_series = next(iter(self._series.values()), [])
+                engine_kwargs = {"total_ticks": max(1, len(first_series) - 60)}
+            self.engine = DCAEngine(
+                self.broker, self.journal, config.assets, config.amount_usd, **engine_kwargs)
+        else:
+            # "Класична (з літератури)" — типові правила (тренд, RSI, MACD),
+            # фіксовані пороги, нічого не підганяється під жодні дані.
+            self.engine = PaperTradingEngine(self.signal, self.risk, self.broker, self.journal)
 
         self.running = False
         self.paused = False
@@ -283,7 +319,11 @@ class Session:
             series = self._series[asset]
             idx = min(self._cursor, len(series) - 1)
             candle = series[idx]
-            for pos, pnl, result in self.broker.update(asset, candle.close):
+            # примусово, а не update() (stop/take-перевірка) — "закрити ВСІ
+            # угоди" має закривати справді все, а не лише те, що вже й так
+            # вийшло б за стопом/тейком (і DCA-позиції інакше не закрились
+            # би НІКОЛИ — у них стоп/тейк навмисно ніколи не спрацьовує)
+            for pos, pnl, result in self.broker.close_all_positions(asset, candle.close):
                 self._journal_close(pos, pnl, result, candle.close, candle.ts)
         self.last_action = "Усі позиції закрито."
 
@@ -346,6 +386,9 @@ class Session:
             "is_demo": self.config.is_demo,
             "market_mode": self.config.market_mode,
             "historical_year": self.config.historical_year,
+            "strategy": self.config.strategy,
+            "optimized_fit": (asdict(self.optimized_params)
+                             if self.optimized_params is not None else None),
             "balance": round(self.broker.equity, 2),
             "starting": self.starting_equity,
             "pnl": round(self.broker.equity - self.starting_equity, 2),

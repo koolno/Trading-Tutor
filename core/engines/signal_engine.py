@@ -42,17 +42,28 @@ class TechnicalFactors:
 
 
 class SignalEngine:
-    def __init__(self, rules: list[Rule], min_confirmations: int = 2):
+    """
+    Пороги нижче (atr_stop_mult, rr_target, rsi_oversold/overbought) —
+    параметри стратегії, а не жорсткі константи: "Оптимізована по історії"
+    (§ демонстрація overfitting) підбирає інші значення через
+    strategy_optimizer.fit_optimized_params(), щоб показати різницю між
+    "Класична" (фіксовані підручникові пороги) і підігнаним варіантом.
+    """
+    def __init__(self, rules: list[Rule], min_confirmations: int = 2,
+                 atr_stop_mult: float = 1.5, rr_target: float = 2.0,
+                 rsi_oversold: float = 30.0, rsi_overbought: float = 75.0):
         self.rules = {r.id: r for r in rules}
         self.min_confirmations = min_confirmations  # R-011
+        self.atr_stop_mult = atr_stop_mult
+        self.rr_target = rr_target
+        self.rsi_oversold = rsi_oversold
+        self.rsi_overbought = rsi_overbought
 
     def generate(
         self,
         market: MarketSnapshot,
         tech: TechnicalFactors,
         news=None,                      # NewsContext | None
-        atr_stop_mult: float = 1.5,
-        rr_target: float = 2.0,
     ) -> tuple[TradeIdea | None, str]:
         """
         Повертає (ідея, пояснення).
@@ -72,7 +83,7 @@ class SignalEngine:
             long_factors.append("Ціна біля підтримки")
         if tech.breakout_up:
             long_factors.append("Пробій вгору")
-        if tech.rsi < 30:
+        if tech.rsi < self.rsi_oversold:
             long_factors.append(f"RSI низький ({tech.rsi:.0f}) — перепроданість")
 
         # --- збір факторів «за шорт» -------------------------------------- #
@@ -82,7 +93,7 @@ class SignalEngine:
             short_factors.append("MACD ведмежий")
         if tech.near_resistance:
             short_factors.append("Ціна біля опору")
-        if tech.rsi > 75:
+        if tech.rsi > self.rsi_overbought:
             short_factors.append(f"RSI високий ({tech.rsi:.0f}) — перекупленість")
 
         # --- вибір напряму за перевагою ----------------------------------- #
@@ -131,13 +142,13 @@ class SignalEngine:
 
         # --- розрахунок стопу/тейку від ATR ------------------------------- #
         atr_abs = market.price * (tech.atr_pct / 100.0)
-        stop_dist = atr_abs * atr_stop_mult
+        stop_dist = atr_abs * self.atr_stop_mult
         if direction == Direction.LONG:
             stop = market.price - stop_dist
-            take = market.price + stop_dist * rr_target
+            take = market.price + stop_dist * self.rr_target
         else:
             stop = market.price + stop_dist
-            take = market.price - stop_dist * rr_target
+            take = market.price - stop_dist * self.rr_target
 
         rules_fired.append("R-010")  # маємо явний R:R
 

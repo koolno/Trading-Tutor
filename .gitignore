@@ -4,5 +4,6 @@ __pycache__/
 *.egg-info/
 .env
 data/*.csv
+data/strategy_cache/
 *.db
 *.sqlite3

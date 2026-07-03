@@ -68,6 +68,10 @@ class StartRequest(BaseModel):
     market_mode: str = "fast_sim"
     historical_year: int | None = None  # рік для market_mode="historical"
     live_interval_sec: int = 60
+    # "classic" (типові правила), "optimized" (підібрано під 2021-2025 —
+    # навмисна демонстрація overfitting) чи "dca" (усереднення, без
+    # Signal/Risk Engine) — див. SessionConfig.strategy.
+    strategy: str = "classic"
 
 
 # запам'ятовуємо, чи стратегія пройшла backtest-гейт (потрібно для live)
@@ -80,6 +84,19 @@ _backtest_passed: bool = False
 @app.get("/api/health")
 def health():
     return {"status": "ok", "backtest_passed": _backtest_passed}
+
+
+@app.get("/api/strategies")
+def strategies():
+    """Інфо для екрана вибору стратегії: чи вже підібрані параметри
+    "Оптимізована" (кеш), і якщо так — з якими результатами на 2021-2025.
+    Дозволяє чесно попередити, що перший запуск підбору займе хвилини."""
+    from core.engines.strategy_optimizer import _CACHE_PATH
+
+    optimized_cached = None
+    if _CACHE_PATH.exists():
+        optimized_cached = json.loads(_CACHE_PATH.read_text(encoding="utf-8"))
+    return {"optimized_cached": optimized_cached}
 
 
 @app.post("/api/backtest")
@@ -134,9 +151,11 @@ def start(req: StartRequest):
         raise HTTPException(status_code=422, detail="Невідомий market_mode")
     if req.market_mode == "historical" and not req.historical_year:
         raise HTTPException(status_code=422, detail="Вкажіть рік для історичного режиму")
+    if req.strategy not in ("classic", "optimized", "dca"):
+        raise HTTPException(status_code=422, detail="Невідома стратегія")
 
     cfg = SessionConfig(
-        amount_usd=req.amount_usd, risk_level=req.risk_level,
+        amount_usd=req.amount_usd, risk_level=req.risk_level, strategy=req.strategy,
         mode=Mode(req.mode), assets=req.assets, cycle_months=req.cycle_months,
         live_enabled=live_requested, live_confirmed=req.live_confirmed,
         market_mode=req.market_mode, historical_year=req.historical_year,

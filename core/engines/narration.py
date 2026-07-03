@@ -39,6 +39,9 @@ def narrate_emergency_stop_uk(asset: str, reason: str) -> str:
 def narrate_entry_uk(entry: JournalEntry) -> str:
     """Одне просте речення про те, що сталося з угодою — без жаргону."""
     if entry.decision == "opened":
+        if entry.reason.startswith("Плановий внесок"):
+            return (f"Система зробила плановий внесок (усереднення) по {entry.asset} — "
+                    f"за розкладом, незалежно від сигналів ринку.")
         direction = "купівлю" if entry.direction == "long" else "продаж"
         return (f"Система відкрила угоду ({direction}) по {entry.asset}, "
                 f"бо побачила кілька підтверджень за цим напрямом.")

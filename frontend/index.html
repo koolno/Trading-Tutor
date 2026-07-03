@@ -30,6 +30,7 @@
   .badge-demo{color:var(--gold);border-color:rgba(212,168,67,.4);background:rgba(212,168,67,.08)}
   .badge-live{color:var(--blue);border-color:rgba(90,143,212,.4);background:rgba(90,143,212,.08)}
   .badge-risk{color:var(--ink);border-color:var(--line);background:var(--panel2)}
+  .badge-warn{color:var(--gold);border-color:rgba(212,168,67,.4);background:rgba(212,168,67,.08)}
   .grid{display:grid;gap:14px}
   .cols-4{grid-template-columns:repeat(4,1fr)}
   .cols-2{grid-template-columns:1.6fr 1fr}
@@ -79,6 +80,11 @@
     margin-bottom:18px;font-size:13px;line-height:1.6;color:var(--ink)}
   .disclaimer-box .icon{font-size:18px;flex:none;line-height:1.4}
   .disclaimer-box b{color:var(--gold)}
+  .strategy-card{border:1px solid var(--line);border-radius:10px;padding:14px;
+    background:var(--panel2);display:flex;flex-direction:column;gap:8px}
+  .strategy-card h4{margin:0;font-size:14px}
+  .strategy-card.warn{border-color:rgba(212,168,67,.4);background:rgba(212,168,67,.06)}
+  .strategy-card .warning{color:var(--gold);font-size:12px;line-height:1.5;margin:0}
   .plain-card{max-width:520px;margin:0 auto}
   .plain-assets{display:flex;gap:8px;margin-bottom:18px;flex-wrap:wrap}
   .plain-assets button{flex:1;min-width:110px}
@@ -331,6 +337,24 @@ const RISK_LEVELS = {
     note:"Демо — м'якші правила лише для показу угод на синтетичних даних. Не для реальних грошей."},
 };
 const riskLabel = (level) => (RISK_LEVELS[level]||{}).label || level || "—";
+
+// Мають відповідати core/session.py SessionConfig.strategy
+const STRATEGIES = {
+  classic: {
+    icon:"📖", label:"Класична (з літератури)",
+    note:"Типові правила з підручника: тренд, RSI, MACD, ≥2 незалежних підтвердження. Пороги фіксовані — нічого не підганяється під жодні дані.",
+  },
+  optimized: {
+    icon:"🧪", label:"Оптимізована по історії",
+    note:"Параметри (пороги RSI, стоп, ціль ризик/прибуток) підібрані так, щоб максимізувати прибуток на реальній історії 2021-2025.",
+    warning:"⚠ Підігнано під минуле — на нових даних, найпевніше, програє (overfitting). Цей режим — навчальний: показати, чому \"найкраще на бектесті\" не означає \"найкраще в майбутньому\".",
+  },
+  dca: {
+    icon:"🛡️", label:"Надійна (усереднення)",
+    note:"Без вибору моменту входу: капітал розподіляється на регулярні внески протягом циклу (dollar-cost averaging / buy-and-hold) — найпростіший, математично захищений підхід.",
+  },
+};
+const strategyLabel = (s) => (STRATEGIES[s]||{}).label || s || "—";
 const capitalTagline = (d) => {
   if(!d || d.balance==null || d.starting==null) return "Навчання торгівлі з контролем ризику";
   if(d.pnl>0) return "Капітал зростає · контроль ризику";
@@ -545,7 +569,15 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress,on
   const [marketMode,setMarketMode]=useState("historical");
   const [historicalYear,setHistoricalYear]=useState(HISTORICAL_YEARS[HISTORICAL_YEARS.length-1]);
   const [confirmed,setConfirmed]=useState(false);
+  const [optimizedFit,setOptimizedFit]=useState(null);
   const passed = backtestResult && backtestResult.passed;
+
+  useEffect(()=>{
+    call("/api/strategies").then(r=>{
+      if(r && !r.error && r.optimized_cached) setOptimizedFit(r.optimized_cached);
+    });
+  },[]);
+
   return (<>
     <DisclaimerBanner/>
     <div className="card">
@@ -614,11 +646,35 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress,on
       </div>}
 
       {mode==="paper" ?
-        <button className="btn-go" onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"paper",market_mode:marketMode,historical_year:historicalYear})}>
-          Почати стратегію</button>
+        <div className="field"><label>Стратегія — обери, яку протестувати</label>
+          <div style={{display:"grid",gap:10}}>
+            {["classic","optimized","dca"].map(key=>{
+              const s = STRATEGIES[key];
+              return (<div key={key} className={"strategy-card"+(s.warning?" warn":"")}>
+                <h4>{s.icon} {s.label}</h4>
+                <p className="note" style={{margin:0}}>{s.note}</p>
+                {s.warning && <p className="warning"><b>{s.warning}</b></p>}
+                {key==="optimized" && (optimizedFit
+                  ? <p className="note" style={{margin:0}}>
+                      На бектесті {optimizedFit.fit_years}: {optimizedFit.fit_total_return_pct>=0?"+":""}
+                      {optimizedFit.fit_total_return_pct}%, {optimizedFit.fit_trades} угод,
+                      win rate {optimizedFit.fit_win_rate}%.
+                    </p>
+                  : <p className="note" style={{margin:0}}>
+                      Перший запуск підбирає параметри на реальних даних — це може зайняти
+                      кілька хвилин (далі кешується, наступні запуски миттєві).
+                    </p>)}
+                <button className="btn-go"
+                  onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"paper",
+                    market_mode:marketMode,historical_year:historicalYear,strategy:key})}>
+                  Почати стратегію: {s.label}</button>
+              </div>);
+            })}
+          </div>
+        </div>
         :
         <button className="btn-go" disabled={!passed||!confirmed}
-          onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"live",live_confirmed:confirmed,market_mode:marketMode,historical_year:historicalYear})}>
+          onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"live",live_confirmed:confirmed,market_mode:marketMode,historical_year:historicalYear,strategy:"classic"})}>
           {passed&&confirmed?"Почати з реальними грошима":"Виконайте умови вище"}</button>
       }
     </div>
@@ -782,6 +838,8 @@ function App(){
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         {d&&d.running&&d.is_demo && <div className="status-pill badge-demo">🎓 Тренажер</div>}
         {d&&d.running && !d.is_demo && <div className="status-pill badge-risk">🛡️ {riskLabel(d.risk_level)}</div>}
+        {d&&d.running&&d.strategy && <div className={"status-pill "+(d.strategy==="optimized"?"badge-warn":"badge-risk")}>
+          {(STRATEGIES[d.strategy]||{}).icon||""} {strategyLabel(d.strategy)}</div>}
         {d&&d.running&&d.market_mode==="live_realtime" && <div className="status-pill badge-live">🌐 Реальний час</div>}
         {d&&d.running&&d.market_mode==="historical" && <div className="status-pill badge-live">📜 Історія {d.historical_year||""}</div>}
         <div className={"status-pill "+status[0]}>{status[1]}</div>

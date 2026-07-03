@@ -112,6 +112,24 @@ class PaperBroker:
         """Реалістична перевірка: стоп/тейк могли спрацювати всередині свічки."""
         return self._check(asset, low=low, high=high)
 
+    def close_all_positions(self, asset: str, price: float
+                            ) -> list[tuple[Position, float, str]]:
+        """Примусово закриває ВСІ позиції по активу за заданою ціною —
+        незалежно від того, чи спрацював стоп/тейк. Потрібно для DCA-позицій
+        (§DCAEngine), у яких стоп/тейк навмисно ніколи не спрацьовує (buy &
+        hold) — без цього "Закрити всі угоди"/кінець циклу лишали б їх
+        відкритими назавжди."""
+        closed = []
+        still_open = []
+        for pos in self.positions:
+            if pos.asset != asset:
+                still_open.append(pos)
+                continue
+            pnl, result = self._close(pos, price)
+            closed.append((pos, pnl, result))
+        self.positions = still_open
+        return closed
+
     def _check(self, asset: str, low: float, high: float
               ) -> list[tuple[Position, float, str]]:
         closed = []
