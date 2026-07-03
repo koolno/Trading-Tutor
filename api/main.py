@@ -16,10 +16,15 @@ import threading
 import time
 from pathlib import Path
 
+from dotenv import load_dotenv
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
+
+# Мусить виконатись ДО будь-якого os.getenv у LiveTradingAdapter — без цього
+# BINANCE_API_KEY/SECRET у .env ніколи не потраплять у процес (§Live-режим).
+load_dotenv()
 
 from core.engines.live_adapter import LiveTradingAdapter
 from core.models.types import Mode
@@ -132,6 +137,18 @@ def start(req: StartRequest):
     live_requested = req.mode == "live"
 
     if live_requested:
+        # Реальні гроші — лише на реальних цінах у реальному часі, лише
+        # неоптимізованою стратегією. "historical"/"fast_sim" означали б
+        # торгувати справжніми грошима на минулих чи вигаданих цінах;
+        # "optimized"/"dca" тут не мають сенсу (перша — навмисно підігнана
+        # демонстрація overfitting, друга — окрема, повільна за задумом
+        # стратегія без Signal/Risk Engine). Session сама теж це перевіряє
+        # (§core/session.py Session.__init__) — тут явна відмова про запас.
+        if req.market_mode != "live_realtime" or req.strategy != "classic":
+            raise HTTPException(
+                status_code=422,
+                detail=("Реальні гроші дозволені лише з market_mode='live_realtime' "
+                        "і strategy='classic'."))
         # Live дозволено ЛИШЕ якщо: пройдено backtest + явне підтвердження + є ключі
         problems = []
         if not _backtest_passed:

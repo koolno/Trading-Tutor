@@ -40,6 +40,12 @@ class Position:
     opened_at: str
     supporting: list[str] = field(default_factory=list)
     rules_fired: list[str] = field(default_factory=list)
+    # заповнюється лише для Live-позицій (§core/engines/live_broker.py) —
+    # реальні order_id на біржі, щоб LiveBroker міг звірити статус кожного
+    # захисного ордера і скасувати той, що не спрацював
+    live: bool = False
+    stop_order_id: str | None = None
+    take_order_id: str | None = None
 
 
 class PaperBroker:
@@ -204,11 +210,12 @@ class PaperBroker:
 class PaperTradingEngine:
     """Звʼязує дані, аналіз, сигнал, ризик, виконання і журнал."""
     def __init__(self, signal: SignalEngine, risk: RiskEngine,
-                 broker: PaperBroker, journal: Journal):
+                 broker: PaperBroker, journal: Journal, mode: str = "paper"):
         self.signal = signal
         self.risk = risk
         self.broker = broker
         self.journal = journal
+        self.mode = mode  # "paper" | "live" — журнал має чесно показувати, які гроші справжні
 
     def _hard_stop_message(self) -> str:
         return ("🛑 Стратегію зупинено до кінця циклу: просадка повторилась "
@@ -235,7 +242,7 @@ class PaperTradingEngine:
             for pos, pnl, result in self.broker.update(market.asset, market.price):
                 self.journal.add(JournalEntry(
                     ts=as_of.isoformat(),
-                    asset=pos.asset, mode="paper", direction=pos.direction.value,
+                    asset=pos.asset, mode=self.mode, direction=pos.direction.value,
                     decision="closed", reason=TRIGGERED_EXIT_REASON,
                     rules_fired=pos.rules_fired, supporting=pos.supporting,
                     entry=pos.entry, stop_loss=pos.stop_loss, take_profit=pos.take_profit,
@@ -284,17 +291,28 @@ class PaperTradingEngine:
         verdict = self.risk.evaluate(idea, market, self.broker.account_state())
         if verdict.is_blocked:
             self.journal.record_rejection(
-                market.asset, "paper", idea.direction.value,
+                market.asset, self.mode, idea.direction.value,
                 "; ".join(verdict.blocking_reasons), idea.rules_fired, ts=as_of,
             )
             return f"🚫 {verdict.explanation_uk}"
 
-        # 5. відкриваємо
-        pos = self.broker.open(idea, verdict.position_size_units, verdict.risk_amount_usd,
-                               opened_at=as_of)
+        # 5. відкриваємо. PaperBroker.open() ніколи не кидає виняток —
+        # LiveBroker.open() кидає RuntimeError, якщо реальний ордер на біржі
+        # відхилено/збійнув (напр. недостатньо коштів, помилка мережі).
+        # Раніше цей випадок не був передбачений і завалив би тік.
+        try:
+            pos = self.broker.open(idea, verdict.position_size_units, verdict.risk_amount_usd,
+                                   opened_at=as_of)
+        except Exception as e:
+            self.journal.record_rejection(
+                market.asset, self.mode, idea.direction.value,
+                f"Помилка виконання ордера на біржі: {e}", idea.rules_fired, ts=as_of,
+            )
+            return f"🚫 Ордер не виконано: {e}"
+
         self.journal.add(JournalEntry(
             ts=as_of.isoformat(),
-            asset=pos.asset, mode="paper", direction=pos.direction.value,
+            asset=pos.asset, mode=self.mode, direction=pos.direction.value,
             decision="opened", reason=idea.why_now,
             rules_fired=idea.rules_fired, supporting=idea.supporting_factors,
             opposing=idea.opposing_factors, entry=pos.entry,

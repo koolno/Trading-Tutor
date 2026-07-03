@@ -6,17 +6,24 @@ Live Trading Adapter (§24, §35) — реальне підключення до
   2. dry_run=True за замовчуванням — навіть увімкнений, ордери не надсилаються;
   3. before Live — backtest-гейт і явне підтвердження користувача.
 
-Ключі — лише з оточення (.env): BINANCE_API_KEY / BINANCE_API_SECRET.
-Права ключа: тільки читання балансу і спот-торгівля. Вивід коштів (withdrawal)
-має бути ВИМКНЕНИЙ на боці біржі — система його не використовує і не потребує.
+Ключі — лише з оточення (.env, завантажується через load_dotenv() у
+api/main.py): BINANCE_API_KEY / BINANCE_API_SECRET. Права ключа: тільки
+читання балансу і спот-торгівля. Вивід коштів (withdrawal) має бути
+ВИМКНЕНИЙ на боці біржі — система його не використовує і не потребує.
+
+Кожна позиція отримує ДВА захисних ордери на біржі — стоп-лос і тейк-профіт
+(окремі ордери, не атомарна OCO-пара: простіше й портативніше між версіями
+ccxt/біржами; LiveBroker.core/engines/live_broker.py звіряє статус обох на
+кожному тіку й скасовує той, що не спрацював).
 
 У середовищі розробки немає інтернету, тож реальні виклики перевіряються на
-твоєму комп'ютері. Логіка захисту й формування ордера протестована на моках.
+твоєму комп'ютері. Логіка захисту й формування ордера протестована на моках
+(core/engines/live_broker.py + tests/test_live_broker.py).
 """
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
+import os
 
 from core.models.types import Direction, TradeIdea
 
@@ -26,7 +33,9 @@ class OrderResult:
     accepted: bool
     dry_run: bool
     detail: str
-    order_id: str | None = None
+    order_id: str | None = None      # id ГОЛОВНОГО ордера цього виклику (вхід — у place_order)
+    fill_price: float | None = None  # реальна ціна виконання, якщо біржа її повернула
+    stop_order_id: str | None = None  # id стоп-ордера, виставленого РАЗОМ із входом (place_order)
 
 
 class LiveTradingAdapter:
@@ -77,10 +86,37 @@ class LiveTradingAdapter:
         bal = ex.fetch_balance()
         return float(bal.get("total", {}).get(quote, 0.0))
 
+    def round_amount(self, symbol: str, amount: float) -> float:
+        """Округлює кількість до кроку лоту біржі — реальна біржа відхилить
+        ордер, чия кількість не відповідає amount_to_precision символу."""
+        try:
+            ex = self._connect()
+            return float(ex.amount_to_precision(symbol, amount))
+        except Exception:
+            return amount  # без підключення (dry-run/тести без ключів) — як є
+
     # --------------------------------------------------------------------- #
-    #  Виставлення ордера з потрійним захистом
+    #  Виставлення ордерів
     # --------------------------------------------------------------------- #
+    def _place_protective_order(self, symbol: str, side: str, size: float,
+                                 price: float, order_type: str, params: dict
+                                ) -> OrderResult:
+        """Спільний хелпер для стоп-лос і тейк-профіт ордерів — обидва це
+        "ордер у протилежний бік за заданою ціною", різниться лише тип
+        ордера на біржі."""
+        try:
+            ex = self._connect()
+            order = ex.create_order(symbol, order_type, side, size, price, params)
+            return OrderResult(True, False, f"{order_type} ордер встановлено.",
+                               order_id=str(order.get("id", "")))
+        except Exception as e:
+            return OrderResult(False, False, f"Не вдалося встановити {order_type}: {e}")
+
     def place_order(self, idea: TradeIdea, size: float) -> OrderResult:
+        """Ринковий вхід + захисний стоп-ордер. Тейк-профіт — окремим
+        викликом place_take_profit() (LiveBroker робить це одразу після
+        успішного входу), щоб обидва мали власний OrderResult і власний
+        order_id для звірки на кожному тіку."""
         side = "buy" if idea.direction == Direction.LONG else "sell"
         if not self.enabled:
             return OrderResult(False, self.dry_run, "Відхилено: live-режим вимкнено.")
@@ -88,25 +124,68 @@ class LiveTradingAdapter:
             return OrderResult(
                 True, True,
                 f"DRY-RUN: {side.upper()} {size:.6f} {idea.asset} @ ~{idea.entry_price}. "
-                "Реальний ордер НЕ надіслано.")
+                "Реальний ордер НЕ надіслано.", fill_price=idea.entry_price)
         # --- реальне виконання (працює на твоєму комп'ютері з ключами) ---
         try:
             ex = self._connect()
             order = ex.create_order(idea.asset, "market", side, size)
             oid = str(order.get("id", ""))
-            # захисний стоп-ордер
-            opp = "sell" if side == "buy" else "buy"
-            try:
-                ex.create_order(idea.asset, "stop_loss_limit", opp, size,
-                                idea.stop_loss,
-                                {"stopPrice": idea.stop_loss, "price": idea.stop_loss})
-            except Exception:
-                pass  # деякі ринки не підтримують — стоп контролюється системою
-            return OrderResult(True, False,
-                               f"Ордер надіслано: {side.upper()} {size:.6f} {idea.asset}.",
-                               order_id=oid)
+            fill_price = order.get("average") or order.get("price") or idea.entry_price
         except Exception as e:
             return OrderResult(False, False, f"Помилка біржі: {e}")
+
+        opp = "sell" if side == "buy" else "buy"
+        detail = f"Ордер надіслано: {side.upper()} {size:.6f} {idea.asset}."
+        stop_result = self._place_protective_order(
+            idea.asset, opp, size, idea.stop_loss, "stop_loss_limit",
+            {"stopPrice": idea.stop_loss, "price": idea.stop_loss})
+        if not stop_result.accepted:
+            # чесно повідомляємо, а не ховаємо — раніше ця помилка мовчки
+            # проковтувалась (except: pass), і користувач не бачив, що вхід
+            # відбувся БЕЗ захисного стопу на біржі
+            detail += f" УВАГА: захисний стоп-ордер не встановлено ({stop_result.detail})."
+
+        return OrderResult(True, False, detail, order_id=oid, fill_price=fill_price,
+                           stop_order_id=stop_result.order_id if stop_result.accepted else None)
+
+    def place_take_profit(self, idea: TradeIdea, size: float) -> OrderResult:
+        """Окремий лімітний тейк-профіт ордер у протилежний бік за
+        idea.take_profit — викликається LiveBroker.open() одразу після
+        успішного place_order()."""
+        if not self.enabled:
+            return OrderResult(False, self.dry_run, "Відхилено: live-режим вимкнено.")
+        if self.dry_run:
+            return OrderResult(True, True, f"DRY-RUN: тейк-профіт {idea.asset} @ {idea.take_profit}.")
+        side = "sell" if idea.direction == Direction.LONG else "buy"
+        return self._place_protective_order(idea.asset, side, size, idea.take_profit, "limit", {})
+
+    # --------------------------------------------------------------------- #
+    #  Звірка стану ордерів (LiveBroker.update()/update_candle())
+    # --------------------------------------------------------------------- #
+    def fetch_order(self, order_id: str | None, symbol: str) -> dict | None:
+        """Повний об'єкт ордера ccxt (статус, реальна ціна виконання) — або
+        None, якщо ордера немає чи перевірити не вдалось (мережа/біржа).
+        Тимчасова помилка опитування НЕ повинна валити тік."""
+        if not self.enabled or self.dry_run or not order_id:
+            return None
+        try:
+            ex = self._connect()
+            return ex.fetch_order(order_id, symbol)
+        except Exception:
+            return None
+
+    def cancel_order(self, order_id: str | None, symbol: str) -> bool:
+        """Скасовує ордер, що не знадобився (інший захисний ордер уже
+        спрацював). Не критично, якщо не вийде (напр. вже виконаний/
+        скасований сам) — тому лише best-effort, без винятку назовні."""
+        if not self.enabled or self.dry_run or not order_id:
+            return True
+        try:
+            ex = self._connect()
+            ex.cancel_order(order_id, symbol)
+            return True
+        except Exception:
+            return False
 
     def emergency_close_all(self, positions: list | None = None) -> OrderResult:
         if self.dry_run or not self.enabled:

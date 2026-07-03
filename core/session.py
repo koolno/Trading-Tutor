@@ -52,9 +52,12 @@ class SessionConfig:
     # тренажера/демо, ніколи не пропонується як основний Paper-вибір);
     # "historical" — реальна історія Binance за обраний рік (historical_year),
     # відтворена прискорено, як fast_sim, але на СПРАВЖНІХ цінах;
-    # "live_realtime" — реальні ціни з біржі в реальному темпі. У ВСІХ
-    # випадках гроші паперові (PaperBroker) — це НЕ те саме, що live_enabled
-    # (реальні гроші через LiveTradingAdapter, окремий, суворіше захищений шлях).
+    # "live_realtime" — реальні ціни з біржі в реальному темпі. У Paper-режимі
+    # (mode="paper") гроші завжди паперові (PaperBroker) незалежно від
+    # market_mode. Лише коли mode="live" І live_enabled/live_confirmed —
+    # Session вмикає LiveBroker (реальні ордери через LiveTradingAdapter), і
+    # ТІЛЬКИ якщо market_mode="live_realtime" — реальні гроші ніколи не
+    # торгують на історичних чи синтетичних даних (перевіряється нижче).
     market_mode: str = "fast_sim"
     historical_year: int | None = None    # рік для market_mode="historical"
     live_interval_sec: int = 60           # як часто тягнути нову ціну в live_realtime
@@ -102,6 +105,26 @@ class Session:
             enabled=config.live_enabled and config.live_confirmed,
             dry_run=not (config.live_enabled and config.live_confirmed),
         )
+        # Реальні гроші (§24, §35): та сама умова, що визначає self.live вище
+        # (enabled=live_enabled and live_confirmed) вирішує, чи ця сесія
+        # торгуватиме РЕАЛЬНИМИ ордерами через LiveBroker, а не симуляцією.
+        # Обидва мають лишатись синхронізованими — якщо колись розійдуться,
+        # або гроші стануть "реальними, але симульованими", або навпаки.
+        self.is_real_live = (
+            config.mode == Mode.LIVE and config.live_enabled and config.live_confirmed)
+        if self.is_real_live:
+            # /api/start уже відхиляє цю комбінацію (422) — тут захист про
+            # запас, якщо Session колись створять напряму (скрипт, тест),
+            # оминаючи API-шар: реальні гроші допустимі лише на реальних
+            # цінах у реальному часі, з неоптимізованою (не "перепідігнаною")
+            # стратегією.
+            if config.market_mode != "live_realtime" or config.strategy != "classic":
+                raise ValueError(
+                    "Live (реальні гроші) дозволено лише з "
+                    "market_mode='live_realtime' і strategy='classic'."
+                )
+            from core.engines.live_broker import LiveBroker
+            self.broker = LiveBroker(self.live, starting_equity_hint=config.amount_usd)
         self._news_cache: dict = {}
         self.optimized_params = None   # заповнюється нижче лише для strategy="optimized"
         self.ta = TechnicalAnalysis()
@@ -161,7 +184,8 @@ class Session:
             from core.engines.strategy_optimizer import fit_optimized_params
             self.optimized_params = fit_optimized_params()
             self.signal = self.optimized_params.to_signal_engine()
-            self.engine = PaperTradingEngine(self.signal, self.risk, self.broker, self.journal)
+            self.engine = PaperTradingEngine(self.signal, self.risk, self.broker, self.journal,
+                                            mode=config.mode.value)
         elif config.strategy == "dca":
             # "Надійна (усереднення)" — без вибору моменту входу: фіксований
             # план регулярних внесків, без Signal/Risk Engine.
@@ -176,7 +200,8 @@ class Session:
         else:
             # "Класична (з літератури)" — типові правила (тренд, RSI, MACD),
             # фіксовані пороги, нічого не підганяється під жодні дані.
-            self.engine = PaperTradingEngine(self.signal, self.risk, self.broker, self.journal)
+            self.engine = PaperTradingEngine(self.signal, self.risk, self.broker, self.journal,
+                                            mode=config.mode.value)
 
         self.running = False
         self.paused = False
@@ -424,6 +449,7 @@ class Session:
             "running": self.running,
             "paused": self.paused,
             "mode": self.config.mode.value,
+            "is_real_live": self.is_real_live,
             "risk_level": self.config.risk_level,
             "is_demo": self.config.is_demo,
             "market_mode": self.config.market_mode,
