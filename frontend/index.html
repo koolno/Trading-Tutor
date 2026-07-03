@@ -29,6 +29,7 @@
   .st-stop{color:var(--muted)}
   .badge-demo{color:var(--gold);border-color:rgba(212,168,67,.4);background:rgba(212,168,67,.08)}
   .badge-live{color:var(--blue);border-color:rgba(90,143,212,.4);background:rgba(90,143,212,.08)}
+  .badge-risk{color:var(--ink);border-color:var(--line);background:var(--panel2)}
   .grid{display:grid;gap:14px}
   .cols-4{grid-template-columns:repeat(4,1fr)}
   .cols-2{grid-template-columns:1.6fr 1fr}
@@ -303,6 +304,17 @@ const fTime = (iso) => iso ? new Date(iso).toLocaleTimeString("uk-UA",
   {hour:"2-digit",minute:"2-digit",second:"2-digit"}) : "—";
 const LIQUIDITY_TOOLTIP = "нижче 0.4 — угода відхиляється";
 const isLiquidityReason = (reason) => !!reason && reason.includes("ліквідн");
+
+// Мають відповідати core/session.py SessionConfig.to_risk_config()
+const RISK_LEVELS = {
+  conservative: {label:"Обережний",
+    note:"Обережний — ризик 0.5% на угоду, без плеча, пауза при просадці 8%. Рекомендовано для початку."},
+  moderate: {label:"Помірний",
+    note:"Помірний — ризик 0.75% на угоду, без плеча, пауза при просадці 10%."},
+  demo: {label:"Демо",
+    note:"Демо — м'якші правила лише для показу угод на синтетичних даних. Не для реальних грошей."},
+};
+const riskLabel = (level) => (RISK_LEVELS[level]||{}).label || level || "—";
 const sourceLabel = (source) => source==="trainer_synthetic"
   ? "🎓 Кейс тренажера (синтетичні дані)" : "📊 Реальна історія цін";
 
@@ -537,7 +549,7 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress,on
           <button className={risk==="conservative"?"on":""} onClick={()=>setRisk("conservative")}>Обережний</button>
           <button className={risk==="moderate"?"on":""} onClick={()=>setRisk("moderate")}>Помірний</button>
         </div>
-        <p className="note">Обережний — ризик 0.5% на угоду, без плеча, пауза при просадці 8%. Рекомендовано для початку.</p>
+        <p className="note">{RISK_LEVELS[risk].note}</p>
       </div>
       <div className="field"><label>Режим</label>
         <div className="seg">
@@ -732,6 +744,7 @@ function App(){
       <div className="brand">Помічник трейдера<small>Поступовий ріст капіталу · контроль ризику</small></div>
       <div style={{display:"flex",gap:8,alignItems:"center"}}>
         {d&&d.is_demo && <div className="status-pill badge-demo">🎓 Тренажер</div>}
+        {d&&d.running && !d.is_demo && <div className="status-pill badge-risk">🛡️ {riskLabel(d.risk_level)}</div>}
         {d&&d.market_mode==="live_realtime" && <div className="status-pill badge-live">🌐 Реальний час</div>}
         <div className={"status-pill "+status[0]}>{status[1]}</div>
       </div>
