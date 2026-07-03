@@ -39,12 +39,15 @@ class SessionConfig:
     cycle_months: int = 2
     live_enabled: bool = False            # реальні гроші (за замовч. вимкнено)
     live_confirmed: bool = False          # користувач явно підтвердив live
-    # "fast_sim" — прискорена симуляція на синтетичних даних (типово ~7200x
-    # реального часу, див. api/main.py TICKS_PER_POLL + частота опитування);
-    # "live_realtime" — реальні ціни з біржі в реальному темпі. В ОБОХ
+    # "fast_sim" — прискорена симуляція на СИНТЕТИЧНИХ даних (лише для
+    # тренажера/демо, ніколи не пропонується як основний Paper-вибір);
+    # "historical" — реальна історія Binance за обраний рік (historical_year),
+    # відтворена прискорено, як fast_sim, але на СПРАВЖНІХ цінах;
+    # "live_realtime" — реальні ціни з біржі в реальному темпі. У ВСІХ
     # випадках гроші паперові (PaperBroker) — це НЕ те саме, що live_enabled
     # (реальні гроші через LiveTradingAdapter, окремий, суворіше захищений шлях).
     market_mode: str = "fast_sim"
+    historical_year: int | None = None    # рік для market_mode="historical"
     live_interval_sec: int = 60           # як часто тягнути нову ціну в live_realtime
 
     def to_risk_config(self) -> RiskConfig:
@@ -100,6 +103,15 @@ class Session:
             for a in config.assets:
                 self.providers[a] = live_provider
                 self._series[a] = live_provider.fetch_ohlcv(a, "1m", limit=200)
+        elif config.market_mode == "historical":
+            # Реальна історія Binance за обраний рік, відтворена прискорено —
+            # той самий cursor-based playback, що й fast_sim (_tick_fast),
+            # але на СПРАВЖНІХ цінах замість синтетичного завжди-зростаючого ряду.
+            year = config.historical_year or (datetime.now(timezone.utc).year - 1)
+            hist_provider = provider or self._default_historical_provider(year)
+            for a in config.assets:
+                self.providers[a] = hist_provider
+                self._series[a] = hist_provider.fetch_ohlcv(a, "1h", limit=100_000)
         else:
             # Готуємо дані наперед. Для офлайн-демо генеруємо довгу синтетичну
             # історію на кожен актив один раз; курсор іде вперед по ній.
@@ -127,7 +139,7 @@ class Session:
         self.session_id = uuid.uuid4().hex[:16]
         self.last_action = "Сесія створена. Натисніть «Почати стратегію»."
         self.equity_curve: list[float] = [config.amount_usd]
-        self._cursor = 60  # позиція у підготовленій історії (лише fast_sim)
+        self._cursor = 60  # позиція у підготовленій історії (fast_sim/historical)
         self._max_curve = 300  # обмеження довжини кривої для дашборду
         self._lock = threading.Lock()
 
@@ -135,6 +147,11 @@ class Session:
     def _default_live_provider() -> MarketDataProvider:
         from core.data.providers import CcxtProvider
         return CcxtProvider("binance")
+
+    @staticmethod
+    def _default_historical_provider(year: int) -> MarketDataProvider:
+        from core.data.providers import HistoricalProvider
+        return HistoricalProvider(year=year)
 
     # --------------------------------------------------------------------- #
     #  Один тік стратегії
@@ -324,6 +341,7 @@ class Session:
             "risk_level": self.config.risk_level,
             "is_demo": self.config.is_demo,
             "market_mode": self.config.market_mode,
+            "historical_year": self.config.historical_year,
             "balance": round(self.broker.equity, 2),
             "starting": self.starting_equity,
             "pnl": round(self.broker.equity - self.starting_equity, 2),

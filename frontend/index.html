@@ -325,6 +325,7 @@ const RISK_LEVELS = {
     note:"Демо — м'якші правила лише для показу угод на синтетичних даних. Не для реальних грошей."},
 };
 const riskLabel = (level) => (RISK_LEVELS[level]||{}).label || level || "—";
+const HISTORICAL_YEARS = [2021,2022,2023,2024,2025];
 const sourceLabel = (source) => source==="trainer_synthetic"
   ? "🎓 Кейс тренажера (синтетичні дані)" : "📊 Реальна історія цін";
 
@@ -529,7 +530,8 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress,on
   const [amount,setAmount]=useState(500);
   const [risk,setRisk]=useState("conservative");
   const [mode,setMode]=useState("paper");
-  const [marketMode,setMarketMode]=useState("fast_sim");
+  const [marketMode,setMarketMode]=useState("historical");
+  const [historicalYear,setHistoricalYear]=useState(HISTORICAL_YEARS[HISTORICAL_YEARS.length-1]);
   const [confirmed,setConfirmed]=useState(false);
   const passed = backtestResult && backtestResult.passed;
   return (<>
@@ -568,15 +570,21 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress,on
         </div>
       </div>
 
-      <div className="field"><label>Дані ринку</label>
+      <div className="field"><label>Дані ринку (Paper)</label>
         <div className="seg">
-          <button className={marketMode==="fast_sim"?"on":""} onClick={()=>setMarketMode("fast_sim")}>⚡ Швидка симуляція</button>
-          <button className={marketMode==="live_realtime"?"on":""} onClick={()=>setMarketMode("live_realtime")}>🌐 Реальний час</button>
+          <button className={marketMode==="historical"?"on":""} onClick={()=>setMarketMode("historical")}>
+            📜 Історія — реальні дані за {historicalYear}, прискорено</button>
+          <button className={marketMode==="live_realtime"?"on":""} onClick={()=>setMarketMode("live_realtime")}>
+            🌐 Реальний час — поточний ринок, віртуальні гроші</button>
         </div>
+        {marketMode==="historical" && <div className="seg" style={{marginTop:8}}>
+          {HISTORICAL_YEARS.map(y=>
+            <button key={y} className={historicalYear===y?"on":""} onClick={()=>setHistoricalYear(y)}>{y}</button>)}
+        </div>}
         <p className="note">
-          {marketMode==="fast_sim"
-            ? "Синтетична історія прискорено — цикл проходить за хвилини. Гроші завжди паперові."
-            : "Справжні ціни з біржі (Binance) у реальному темпі, оновлення раз на хвилину. Гроші все одно паперові — це НЕ Live-режим вище."}
+          {marketMode==="historical"
+            ? `Справжні свічки Binance за ${historicalYear} рік, відтворені прискорено — цикл проходить за хвилини. Це Paper: гроші завжди паперові, НЕ Live-режим вище. Перше завантаження року може зайняти хвилину-дві (потім кешується).`
+            : "Справжні ціни з біржі (Binance) у реальному темпі, оновлення раз на хвилину. Це теж Paper — гроші віртуальні, НЕ Live-режим вище."}
         </p>
       </div>
 
@@ -594,11 +602,11 @@ function Setup({onStart,onBacktest,backtestResult,onSimple,onCases,onProgress,on
       </div>}
 
       {mode==="paper" ?
-        <button className="btn-go" onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"paper",market_mode:marketMode})}>
+        <button className="btn-go" onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"paper",market_mode:marketMode,historical_year:historicalYear})}>
           Почати стратегію</button>
         :
         <button className="btn-go" disabled={!passed||!confirmed}
-          onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"live",live_confirmed:confirmed,market_mode:marketMode})}>
+          onClick={()=>onStart({amount_usd:amount,risk_level:risk,mode:"live",live_confirmed:confirmed,market_mode:marketMode,historical_year:historicalYear})}>
           {passed&&confirmed?"Почати з реальними грошима":"Виконайте умови вище"}</button>
       }
     </div>
@@ -756,6 +764,7 @@ function App(){
         {d&&d.is_demo && <div className="status-pill badge-demo">🎓 Тренажер</div>}
         {d&&d.running && !d.is_demo && <div className="status-pill badge-risk">🛡️ {riskLabel(d.risk_level)}</div>}
         {d&&d.market_mode==="live_realtime" && <div className="status-pill badge-live">🌐 Реальний час</div>}
+        {d&&d.market_mode==="historical" && <div className="status-pill badge-live">📜 Історія {d.historical_year||""}</div>}
         <div className={"status-pill "+status[0]}>{status[1]}</div>
       </div>
     </header>

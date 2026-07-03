@@ -61,9 +61,12 @@ class StartRequest(BaseModel):
     assets: list[str] = ["BTC/USDT", "ETH/USDT", "SOL/USDT"]
     cycle_months: int = 2
     live_confirmed: bool = False        # користувач явно підтвердив реальні гроші
-    # "fast_sim" (типово) чи "live_realtime" — див. SessionConfig.market_mode.
-    # Не плутати з mode="live" (реальні гроші) — тут гроші завжди паперові.
+    # "historical" (реальна історія за historical_year, прискорено),
+    # "live_realtime" чи "fast_sim" (синтетика, лише тренажер) — див.
+    # SessionConfig.market_mode. Не плутати з mode="live" (реальні гроші) —
+    # тут гроші завжди паперові.
     market_mode: str = "fast_sim"
+    historical_year: int | None = None  # рік для market_mode="historical"
     live_interval_sec: int = 60
 
 
@@ -127,14 +130,17 @@ def start(req: StartRequest):
                 detail={"message": "Live поки недоступний. Виконайте умови:",
                         "checks": problems})
 
-    if req.market_mode not in ("fast_sim", "live_realtime"):
+    if req.market_mode not in ("fast_sim", "live_realtime", "historical"):
         raise HTTPException(status_code=422, detail="Невідомий market_mode")
+    if req.market_mode == "historical" and not req.historical_year:
+        raise HTTPException(status_code=422, detail="Вкажіть рік для історичного режиму")
 
     cfg = SessionConfig(
         amount_usd=req.amount_usd, risk_level=req.risk_level,
         mode=Mode(req.mode), assets=req.assets, cycle_months=req.cycle_months,
         live_enabled=live_requested, live_confirmed=req.live_confirmed,
-        market_mode=req.market_mode, live_interval_sec=req.live_interval_sec,
+        market_mode=req.market_mode, historical_year=req.historical_year,
+        live_interval_sec=req.live_interval_sec,
     )
     _session = Session(cfg)
     _session.start()
